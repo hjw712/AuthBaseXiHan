@@ -1,0 +1,36 @@
+{
+  "auth.register.title": "注册新账号",
+  "auth.register.description": "创建新用户账号：账号全局唯一，密码 BCrypt 加盐哈希入库。成功返回用户 ID。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：AUTH_VALIDATION_001（400，账号须 4-20 位字母/数字/下划线）、AUTH_VALIDATION_002（400，密码须 8-32 位含字母和数字）、AUTH_CONFLICT_001（409，账号已存在）。",
+
+  "auth.captcha.title": "获取图形验证码",
+  "auth.captcha.description": "生成 4 位图形验证码（SVG，data URI 直接作 &lt;img src&gt;），返回 captchaId 与有效期。验证码存 Redis，2 分钟过期、验证一次即作废（无论对错），防重试爆破。登录前须先取码。",
+
+  "auth.login.title": "登录",
+  "auth.login.description": "校验图形验证码与账号密码，成功签发会话令牌（有效期 7 天，JWT + Redis 会话双轨：JWT 负责验签，Redis 记录有效会话，登出/强制下线立即吊销）。验证码先验且读后即删（一次有效），账号不存在与密码错误返回同一错误码，防账号枚举。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：AUTH_VALIDATION_003（400，验证码错误或已过期，请重新获取）、AUTH_DENIED_001（403，账号或密码错误）、KERNEL_VALIDATION_001（400，请求体不是 JSON 对象）；缺必填字段由请求 Schema 自动校验，返回 400。",
+
+  "auth.logout.title": "登出",
+  "auth.logout.description": "吊销当前令牌的会话，调用后当前令牌立即失效（请求体传 {}）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：SECURITY_DENIED_001（401，未携带令牌）；会话已被吊销的调用过不了认证，无需在本操作处理。",
+
+  "auth.logout_all.title": "强制下线（退出全部设备）",
+  "auth.logout_all.description": "吊销当前账号在所有设备的会话（改密码、疑似账号被盗时用），返回吊销的会话数，调用方自己的令牌也随之失效（请求体传 {}）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：SECURITY_DENIED_001（401，未携带令牌）。",
+
+  "auth.whoami.title": "查询当前身份",
+  "auth.whoami.description": "返回当前调用方的身份信息：是否已登录、用户 ID、认证方式与显示名，用于验证令牌是否真实有效。调用时须携带 Bearer 令牌（Authorization: Bearer <token>）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：SECURITY_DENIED_001（401，未携带令牌）、SECURITY_DENIED_003（401，令牌无效或会话已吊销/已登出）。",
+
+  "openapi.tags.auth.name": "认证",
+  "openapi.tags.auth.description": "注册、登录、登出、强制下线与身份查询",
+
+  "auth.session_invalid": "会话已失效或已注销，请重新登录",
+  "auth.captcha_invalid": "验证码错误或已过期，请刷新后重试",
+
+  "openapi.schemas.problem_details.description": "操作失败时返回 RFC 9457 ProblemDetails。客户端只依赖 code 判断错误类型，不要解析 detail 文字。",
+  "openapi.schemas.problem_details.properties.code": "错误码，格式 <域名>_<种类>_<编号>，如 AUTH_CONFLICT_001。客户端以此判断错误类型",
+  "openapi.schemas.problem_details.properties.status": "HTTP 状态码，按错误种类映射（VALIDATION 400 / CONFLICT 409 / DENIED 403 / NOTFOUND 404 / UNEXPECTED 500）",
+  "openapi.schemas.problem_details.properties.title": "错误种类，即错误码的 KIND 段（VALIDATION / CONFLICT / DENIED 等）",
+  "openapi.schemas.problem_details.properties.type": "错误类型 URI：urn:xihan:error:<错误码>",
+  "openapi.schemas.problem_details.properties.detail": "按调用方语言翻译的错误文案（Accept-Language 协商区域）",
+  "openapi.schemas.problem_details.properties.instance": "本次请求的路径",
+  "openapi.schemas.problem_details.properties.trace_id": "本次调用的 trace-id，排障与日志关联用",
+  "openapi.schemas.problem_details.properties.errors": "字段级校验错误，仅 VALIDATION 种类出现。键是字段路径（嵌套用点分，如 lines[0].sku），值是消息数组",
+  "openapi.schemas.problem_details.properties.details": "错误附加标量（如 retryAfter、id），集合与对象不输出"
+}

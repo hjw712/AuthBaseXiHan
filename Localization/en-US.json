@@ -1,0 +1,36 @@
+{
+  "auth.register.title": "Register a new account",
+  "auth.register.description": "Creates a new user account. The username is globally unique and the password is stored as a BCrypt hash. Returns the new user id.\n\n[Errors] All failures are RFC 9457 ProblemDetails with fields: code (the error code — clients should rely only on it), status (HTTP status), title (error kind), detail (localized message), errors (field-level validation errors, 400 only), details (extra scalars), traceId (correlation id), instance (request path).\n\nThis operation may return: AUTH_VALIDATION_001 (400, username must be 4-20 chars of letters/digits/underscore), AUTH_VALIDATION_002 (400, password must be 8-32 chars with letters and digits), AUTH_CONFLICT_001 (409, username already exists).",
+
+  "auth.captcha.title": "Get a CAPTCHA image",
+  "auth.captcha.description": "Generates a 4-character CAPTCHA (SVG returned as a data URI usable directly as &lt;img src&gt;) with its captchaId and expiry. Stored in Redis; expires after 2 minutes and is consumed on the first verification attempt regardless of outcome, preventing replay brute force. Required before logging in.",
+
+  "auth.login.title": "Log in",
+  "auth.login.description": "Validates the CAPTCHA and credentials, then issues a session token (valid for 7 days; JWT + Redis dual-track session: JWT carries the signature, Redis tracks active sessions so logout/forced sign-out revokes immediately). The CAPTCHA is verified first and consumed on use (single attempt). Wrong username and wrong password return the same error code to prevent account enumeration.\n\n[Errors] All failures are RFC 9457 ProblemDetails with fields: code (the error code — clients should rely only on it), status (HTTP status), title (error kind), detail (localized message), errors (field-level validation errors, 400 only), details (extra scalars), traceId (correlation id), instance (request path).\n\nThis operation may return: AUTH_VALIDATION_003 (400, CAPTCHA wrong or expired — fetch a new one), AUTH_DENIED_001 (403, wrong username or password), KERNEL_VALIDATION_001 (400, request body is not a JSON object); missing required fields are rejected by request schema validation with 400.",
+
+  "auth.logout.title": "Log out",
+  "auth.logout.description": "Revokes the session of the current token; the token becomes invalid immediately after the call (send {} as the body).\n\n[Errors] All failures are RFC 9457 ProblemDetails with fields: code (the error code — clients should rely only on it), status (HTTP status), title (error kind), detail (localized message), errors (field-level validation errors, 400 only), details (extra scalars), traceId (correlation id), instance (request path).\n\nThis operation may return: SECURITY_DENIED_001 (401, no token presented); calls with an already-revoked session are rejected during authentication.",
+
+  "auth.logout_all.title": "Force sign-out (all devices)",
+  "auth.logout_all.description": "Revokes all sessions of the current account across devices (use after password change or suspected account compromise) and returns the number of revoked sessions; the caller's own token is revoked as well (send {} as the body).\n\n[Errors] All failures are RFC 9457 ProblemDetails with fields: code (the error code — clients should rely only on it), status (HTTP status), title (error kind), detail (localized message), errors (field-level validation errors, 400 only), details (extra scalars), traceId (correlation id), instance (request path).\n\nThis operation may return: SECURITY_DENIED_001 (401, no token presented).",
+
+  "auth.whoami.title": "Who am I",
+  "auth.whoami.description": "Returns the caller's identity: whether authenticated, user id, authentication scheme and display name — useful to verify a token is actually valid. Requires a Bearer token (Authorization: Bearer <token>).\n\n[Errors] All failures are RFC 9457 ProblemDetails with fields: code (the error code — clients should rely only on it), status (HTTP status), title (error kind), detail (localized message), errors (field-level validation errors, 400 only), details (extra scalars), traceId (correlation id), instance (request path).\n\nThis operation may return: SECURITY_DENIED_001 (401, no token presented), SECURITY_DENIED_003 (401, token invalid or session revoked/logged out).",
+
+  "openapi.tags.auth.name": "Authentication",
+  "openapi.tags.auth.description": "Register, log in, log out, force sign-out and identity query",
+
+  "auth.session_invalid": "Session is invalid or has been revoked, please sign in again",
+  "auth.captcha_invalid": "CAPTCHA is wrong or expired, please fetch a new one",
+
+  "openapi.schemas.problem_details.description": "Returned on failure as RFC 9457 ProblemDetails. Clients should rely only on code to identify the error type, never parse detail text.",
+  "openapi.schemas.problem_details.properties.code": "Error code in <domain>_<kind>_<number> form, e.g. AUTH_CONFLICT_001. Clients use it to identify the error type",
+  "openapi.schemas.problem_details.properties.status": "HTTP status code mapped from the error kind (VALIDATION 400 / CONFLICT 409 / DENIED 403 / NOTFOUND 404 / UNEXPECTED 500)",
+  "openapi.schemas.problem_details.properties.title": "Error kind, i.e. the KIND segment of the code (VALIDATION / CONFLICT / DENIED etc.)",
+  "openapi.schemas.problem_details.properties.type": "Error type URI: urn:xihan:error:<code>",
+  "openapi.schemas.problem_details.properties.detail": "Human-readable message localized to the caller's language (Accept-Language negotiation)",
+  "openapi.schemas.problem_details.properties.instance": "Path of the failing request",
+  "openapi.schemas.problem_details.properties.trace_id": "Trace id of this invocation, for log correlation",
+  "openapi.schemas.problem_details.properties.errors": "Field-level validation errors, present only for VALIDATION. Keys are field paths (dot-separated, e.g. lines[0].sku), values are message arrays",
+  "openapi.schemas.problem_details.properties.details": "Extra scalar details attached to the error (e.g. retryAfter, id); collections and objects are not emitted"
+}

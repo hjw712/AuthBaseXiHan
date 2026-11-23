@@ -1,0 +1,11 @@
+# 构建产物
+bin/
+obj/
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# 本机开发配置（含真实密钥/密码，不入仓库）
+appsettings.Development.json
