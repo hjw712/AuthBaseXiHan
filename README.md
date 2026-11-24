@@ -24,7 +24,7 @@ HTTP 协议适配器自动映射路由（**资源与动词用冒号分隔**：`P
 
 ## 运行
 
-**先确保 Redis 已启动**（连接串已带 `abortConnect=false`：Redis 未就绪时应用仍可启动并在后台持续重连，但缓存/会话/幂等能力要等 Redis 上线才可用；IIS 首次启动建议仍先起 Redis 避免功能降级）：
+**必须先启动 Redis，再启动应用**——这是硬性前提，不是可选项。框架的 `RedisCachingFeature.StartAsync` 会显式检查连接状态，Redis 没连上就直接抛 `Redis is not connected` 让整个应用启动失败。连接串里的 `abortConnect=false` **只能避免首次连接抛 `RedisConnectionException`，救不了这个检查**（实测：Redis 断线时即使带 `abortConnect=false`，应用仍 500.30 崩溃）：
 
 ```bash
 cd D:/Redis-8.10.3 && ./redis-server.exe redis.conf    # 本机 Redis（127.0.0.1:6379，<你的 Redis 密码>，注意用相对路径）
@@ -114,7 +114,7 @@ dotnet run --urls http://localhost:5300
 }
 ```
 
-- `Configuration` 是 StackExchange.Redis 连接串；也可用绑定 `XiHan:Bindings:cache` 覆盖。**必须带 `abortConnect=false`**：否则 Redis 瞬间不可用时 `ConnectionMultiplexer.Connect` 直接抛 `RedisConnectionException`，框架 `RedisCachingFeature` 启动失败 → 整个应用起不来（IIS 500.30，堆栈里官方明确建议此项）；带上后连接失败转为后台重试，应用可正常启动
+- `Configuration` 是 StackExchange.Redis 连接串；也可用绑定 `XiHan:Bindings:cache` 覆盖。**建议带 `abortConnect=false`**：避免 Redis 短暂抖动时 `ConnectionMultiplexer.Connect` 直接抛 `RedisConnectionException`；但它**不能**替代"先起 Redis"——框架 `StartAsync` 仍检查连接状态，Redis 离线照样启动失败（`Redis is not connected`）。它是韧性补充，不是免死金牌
 - `KeyPrefix` 隔离不同应用的键（键实际形态：`authbase:auth:session:<token>`）
 - `DefaultTimeToLiveSeconds` 是未指定过期时的默认存活时间；会话令牌显式设了 7 天（604800 秒）绝对过期
 
@@ -138,8 +138,8 @@ D:/Redis-8.10.3/redis-cli.exe ttl "authbase:auth:session:<token>"    # 看剩余
 
 注意：
 
-- **应用启动时连接 Redis，连接串务必带 `abortConnect=false`**：否则 Redis 未就绪会直接启动失败；带上后可正常启动、后台重连（但缓存/会话要等 Redis 上线）
-- 本机 Redis 目前是手动启动的进程，重启机器后要重新执行；**IIS 部署环境的启动顺序陷阱**：应用可能在 Redis 服务起来之前被 IIS 拉起，此时没有 `abortConnect=false` 就会 500.30 且进入快速失败状态，即使随后 Redis 起来也不会自动重试，必须回收应用池才恢复
+- **应用启动强依赖 Redis 在线**：`RedisCachingFeature.StartAsync` 检查连接状态，Redis 没起来就抛 `Redis is not connected` 直接启动失败。`abortConnect=false` 只解决 Connect 阶段的 `RedisConnectionException`，救不了这个检查——**必须先起 Redis 再起 API**
+- IIS 场景的启动顺序陷阱：应用被 IIS 拉起时若 Redis 还没就绪就会失败并进入快速失败状态，即便 Redis 后来起来也不会自愈，需回收应用池才恢复（非管理员无法 `iisreset`，可改 `web.config` 内容触发 IIS 自动回收）
 - 值前有 1 字节头（`0` 绝对过期 / `1` 滑动过期），所以 redis-cli 看到的是 `"\x00true"`，正常
 
 ## 接口契约
@@ -307,7 +307,7 @@ curl https://localhost:44359/health/live
 15. **自定义类型进 Redis 缓存**：缓存序列化链按源生成元数据解析，类型登记进 `AppJsonContext` 后调 `CacheSerializerRegistration.AddTypeInfo(services, AppJsonContext.Default)`；框架的 `IInvocationAuthenticationFilter` 只对绕过管道的端点生效，管道内请求的会话门禁必须走装饰认证处理器传输
 16. **无感更新用 ANCM 应用卷影复制，不是 `vssadmin` 系统卷影**：`vssadmin` 是磁盘备份快照、需管理员且不解决 DLL 锁定；正解是 `web.config` 里 `<aspNetCore>` 下加 `<handlerSettings>` 子元素，配 `enableShadowCopy` / `shadowCopyDirectory` / `cleanShadowCopyDirectory` 三个 `<handlerSetting name="..." value="..." />`（Hosting Bundle ≥ 7.0）。**必须写成 handlerSetting 子元素，写成 `<aspNetCore>` 的 XML 属性不会生效**。副本目录放站点外、给应用池身份授「修改」权限（缺权限启动 500）；它只减少停机、**不能严格零停机**，回收瞬间仍可能 503
 17. **预置 `web.config` 让发布自动生成卷影配置**：项目根放 `web.config`（含 `<handlers>` 与带 `<handlerSettings>` 的 `<aspNetCore>`），`dotnet publish` 会以它为模板合并环境变量等，不会用 SDK 默认模板覆盖——已实测发布产物保留 handlerSettings，CI/CD 无需发布后改服务器文件
-18. **IIS 500.30 启动失败且堆栈是 `RedisConnectionException` → 连接串缺 `abortConnect=false`**：StackExchange.Redis 默认首次连接失败即抛异常，`RedisCachingFeature` 随之启动失败、整个应用 500.30。官方解法是连接串加 `abortConnect=false`（`AbortOnConnectFail=false`），连接失败转为后台重试。**IIS 场景更隐蔽**：应用被 IIS 拉起时若 Redis 还没就绪就失败，随后进入快速失败状态卡死，即便 Redis 后来起来也不会自愈——加 `abortConnect=false` 才能根治；临时救场可改 `web.config` 触发回收，但非管理员无法 `iisreset`
+18. **IIS 500.30 启动失败且堆栈是 `RedisConnectionException` → 连接串加 `abortConnect=false`（但仅此不够）**：StackExchange.Redis 默认首次连接失败即抛异常；加 `abortConnect=false` 后 Connect 阶段不抛了，但框架 `RedisCachingFeature.StartAsync` 仍显式检查连接状态，Redis 真离线照样抛 `Redis is not connected` 崩溃。**结论：Redis 必须先于应用启动，`abortConnect=false` 只是韧性补充**。IIS 更隐蔽：拉起时 Redis 未就绪就失败并卡快速失败状态，Redis 起来也不自愈，须回收应用池（非管理员可改 web.config 内容触发自动回收）。本机 Redis 是手动进程（Cygwin 版须 `cd D:/Redis-8.10.3 && ./redis-server.exe redis.conf`，绝对路径会被误解析），建议用 `RedisService.exe` 注册成服务开机自启
 19. **卷影复制 + 环境变量注入的启动排障链**：`web.config` 用 `<environmentVariables><environmentVariable name="ASPNETCORE_ENVIRONMENT" value="Development" /></environmentVariables>` 注入环境（本机真实配置在 `appsettings.Development.json`，Production 读占位符会连不上 SQL）；改 `web.config` 会触发 ANCM 重建卷影目录（`cleanShadowCopyDirectory=true` 清旧建新，子目录序号从 `0` 递增到 `1`）——所以「站点 200 但卷影目录文件数暂时为 0」是正常的重建中间态，等十几秒即可
 
 ## 已知问题（框架 rc.6）
