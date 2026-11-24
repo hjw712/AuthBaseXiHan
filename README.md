@@ -211,6 +211,75 @@ D:/Redis-8.10.3/redis-cli.exe ttl "authbase:auth:session:<token>"    # 看剩余
 - OpenAPI 文档自动发布 `components.securitySchemes.bearer` 与全局 `security`，Scalar 有「Authorize」按钮
 - `GET /auth:whoami` 是受保护接口示例（`ReadOnly=true, Policy="authenticated"`），新受保护操作照此声明
 
+## 部署：卷影复制与无感更新
+
+IIS 上运行的 ASP.NET Core 应用会**锁定自己的 DLL**，导致发布时覆盖不了、报「文件被进程占用」。
+ANCM（ASP.NET Core Module v2）的**应用卷影复制（Shadow Copy）**让 IIS 先把程序集复制到独立目录再加载，
+源目录的 DLL 因此不再被占用，可以随时覆盖——这就是「无感更新」的核心。
+
+> **概念区分（别走弯路）**：Windows 的 `vssadmin` / 卷影复制服务（VSS）是**磁盘备份快照**技术，
+> 跟 DLL 解锁无关，且必须管理员权限，不用它。这里用的是 **ANCM 的应用级卷影复制**，
+> 只需在 `web.config` 配属性 + 给目录授权，无需系统级快照。
+
+### 工作原理与边界
+
+- ANCM 启动时把站点程序集复制到 `shadowCopyDirectory`，从副本运行；源目录 DLL 解锁
+- 检测到 web.config / DLL 变化后，ANCM 自动复制到新目录并回收应用，加载新版本
+- **卷影复制 ≠ 零停机**：微软明确说明它仍会回收应用，**瞬间可能有 503**；
+  本应用会话在 Redis、数据用 `EnsureCreated`，重启不丢登录态和数据，体感接近无感。
+  要严格零停机需蓝绿部署 / 部署槽（两个站点目录 + ARR 或负载均衡切换）
+
+### 配置（web.config）
+
+项目根的 `web.config` 已预置以下属性，`dotnet publish` 会以此为模板合并（保留这些属性）：
+
+```xml
+<aspNetCore processPath="dotnet" arguments=".\AuthBaseXiHan.dll"
+            stdoutLogEnabled="false" stdoutLogFile=".\logs\stdout"
+            hostingModel="inprocess"
+            enableShadowCopy="true"
+            shadowCopyDirectory="..\AuthBaseXiHan_ShadowCopy"
+            cleanShadowCopyDirectory="true" />
+```
+
+| 属性 | 作用 |
+|---|---|
+| `enableShadowCopy` | `true` 开启卷影复制 |
+| `shadowCopyDirectory` | 副本目录，用 `..` 放到**站点目录之外**，避免发布时被同步/删除 |
+| `cleanShadowCopyDirectory` | 启动时先清理再复制，避免升级 .NET 后残留旧程序集导致 `500.30`（默认 `false`，建议开） |
+
+**版本要求**：属性名取决于服务器 **Hosting Bundle** 版本（与本项目的 net10.0 无关）：
+`>= 7.0` 用 `enableShadowCopy`（本机 10.x/11.x 适用）；`6.0` 用 `experimentalEnableShadowCopy`。
+
+### 部署步骤（首次需管理员）
+
+`deploy-shadowcopy.ps1` 完成三件事：创建副本目录 → 给**应用程序池身份**授予该目录「修改」权限（读写删，缺了会 500）→ 发布并校验 web.config。
+
+```powershell
+# 以管理员身份运行 PowerShell，在項目根目录执行
+cd D:\个人项目\admin-template\src-xihan\AuthBaseXiHan
+.\deploy-shadowcopy.ps1 -AppPoolName "<你的应用池名>"     # 不传则尝试自动探测，失败回退 AuthBaseXiHan
+```
+
+- 副本目录默认 `<发布目录上一级>\AuthBaseXiHan_ShadowCopy`（即 `D:\个人发布项目\AuthBaseXiHan_ShadowCopy`），
+  **不要**放在站点目录里，也别往里写日志/数据（会频繁触发重启）
+- 发布目录默认 `D:\个人发布项目\AuthBaseXiHan`，可用 `-PublishDir` 改
+- 只授权不发布：`-SkipPublish`；发布后手动回收应用池：`-Recycle`（通常不需要，ANCM 会自动检测）
+- IIS Express（端口 44359）主要用于开发调试，卷影复制针对完整 IIS；本地 `dotnet run` 不受这些配置影响
+
+### 验证
+
+```powershell
+# 1. 发布的 web.config 含三个属性（脚本已自动校验）
+Select-String -Path D:\个人发布项目\AuthBaseXiHan\web.config -Pattern "enableShadowCopy"
+
+# 2. 站点能访问、登录流程正常
+curl https://localhost:44359/health/live
+
+# 3. 无感更新实测：站点运行中再次执行 .\deploy-shadowcopy.ps1，
+#    不手动停应用池，观察 DLL 能被直接覆盖、应用自动加载新版本（可能有 1 次短暂 503）
+```
+
 ## 开发要点（踩坑记录）
 
 1. **错误码格式强制** `<域名>_<种类>_<编号>`（如 `AUTH_CONFLICT_001`），不合规直接抛异常
@@ -228,6 +297,8 @@ D:/Redis-8.10.3/redis-cli.exe ttl "authbase:auth:session:<token>"    # 看剩余
 13. **消息目录键只允许小写字母/数字/下划线**（`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`），连字符不合法（启动抛 FrameworkException）；操作文档键由框架把操作 ID 的连字符转成下划线推导（`auth.logout-all` → `auth.logout_all.title`）
 14. **装饰框架认证处理器（会话门禁）**：内核 Authenticate 阶段按方案名取 DI 里「第一个」匹配的 `IAuthenticationHandler`，装饰器必须先于 `AddXiHan` 登记；内层处理器按具体类型（`JwtAuthenticationHandler`）显式注册后注入，不能注入 `IEnumerable<IAuthenticationHandler>`（包含自身，循环依赖）
 15. **自定义类型进 Redis 缓存**：缓存序列化链按源生成元数据解析，类型登记进 `AppJsonContext` 后调 `CacheSerializerRegistration.AddTypeInfo(services, AppJsonContext.Default)`；框架的 `IInvocationAuthenticationFilter` 只对绕过管道的端点生效，管道内请求的会话门禁必须走装饰认证处理器传输
+16. **无感更新用 ANCM 应用卷影复制，不是 `vssadmin` 系统卷影**：`vssadmin` 是磁盘备份快照、需管理员且不解决 DLL 锁定；正解是 `web.config` 配 `enableShadowCopy` + `shadowCopyDirectory` + `cleanShadowCopyDirectory`（Hosting Bundle ≥ 7.0）。副本目录必须放在站点目录之外，并给**应用池身份**授「修改」权限（缺权限启动 500）；它只减少停机、**不能做到严格零停机**，回收瞬间仍可能 503
+17. **预置 `web.config` 让发布自动生成卷影配置**：项目根放 `web.config`（含 `<handlers>` 与带 shadow copy 属性的 `<aspNetCore>`），`dotnet publish` 会以它为模板合并环境变量等，不会用 SDK 默认模板覆盖——已实测发布产物保留三个属性，CI/CD 无需发布后改服务器文件
 
 ## 已知问题（框架 rc.6）
 
