@@ -1,5 +1,4 @@
 using AuthBaseXiHan;
-using AuthBaseXiHan.Captcha;
 using AuthBaseXiHan.Persistence;
 using AuthBaseXiHan.Sessions;
 using Microsoft.EntityFrameworkCore;

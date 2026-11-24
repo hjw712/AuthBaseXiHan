@@ -13,7 +13,9 @@ src-xihan/AuthBaseXiHan/
 ├── Sessions/
 │   ├── JwtTokenIssuer.cs         # JWT 签发（HS256，与 Security.Jwt 同一密钥；框架只校验不签发）
 │   ├── SessionStore.cs           # Redis 会话白名单：jti 登记 / 吊销 / 强制下线
-│   └── SessionGateHandler.cs     # 会话门禁：验签通过后再查 Redis 会话存在才放行
+│   ├── SessionGateHandler.cs     # 会话门禁：验签通过后再查 Redis 会话存在才放行
+│   ├── CaptchaStore.cs           # 图形验证码存储：Redis 轨，读后即删一次有效
+│   └── CaptchaGenerator.cs       # SVG 验证码生成（纯字符串拼装，无原生依赖，AOT 安全）
 ├── Persistence/
 │   ├── User.cs                   # 用户实体（IEntity<long> + [EntityIndex] 唯一索引声明）
 │   └── AuthDbContext.cs          # 应用自己的 DbContext + ApplyPersistenceConventions
@@ -165,7 +167,7 @@ D:/Redis-8.10.3/redis-cli.exe ttl "authbase:auth:session:<token>"    # 看剩余
 
 校验规则与旧版一致：账号 4-20 位字母/数字/下划线；密码 8-32 位含字母数字；BCrypt 加盐哈希。
 
-**登录流程（须先取验证码）**：`GET /auth:captcha` 取 `captchaId` 与图像 → 用户输入 4 位字符 → `POST /auth:login` 带 `captchaId + captchaCode + userName + password`。验证码存 Redis（键 `auth:captchas:{id}`，TTL 2 分钟），**读后即删一次有效**（对错都作废，防重试爆破）；比对忽略大小写；字符集去掉了 0/O、1/I/l 等易混字符。验证码为 SVG 纯字符串生成（`Captcha/CaptchaStore.cs`），无 System.Drawing 原生依赖，AOT 安全。
+**登录流程（须先取验证码）**：`GET /auth:captcha` 取 `captchaId` 与图像 → 用户输入 4 位字符 → `POST /auth:login` 带 `captchaId + captchaCode + userName + password`。验证码存 Redis（键 `auth:captchas:{id}`，TTL 2 分钟），**读后即删一次有效**（对错都作废，防重试爆破）；比对忽略大小写；字符集去掉了 0/O、1/I/l 等易混字符。验证码为 SVG 纯字符串生成（`Sessions/CaptchaGenerator.cs`），无 System.Drawing 原生依赖，AOT 安全。
 
 ## 认证（JWT + Redis 会话双轨）
 
