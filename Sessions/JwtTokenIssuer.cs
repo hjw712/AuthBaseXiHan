@@ -1,17 +1,15 @@
-using System.Security.Claims;
 using System.Text;
-using System.Text.Json.Serialization;
 using Microsoft.IdentityModel.JsonWebTokens;
 using Microsoft.IdentityModel.Tokens;
 
-namespace AuthBaseXiHan.Operations;
+namespace AuthBaseXiHan.Sessions;
 
 /// <summary>
 /// JWT 签发服务（HS256 对称密钥）。
 /// 框架的 Security.Jwt 只校验不签发：本服务用与 XiHan:Security:Jwt:Secret 相同的密钥签发，
 /// 写入 sub（主体 ID）/ name（显示名）/ jti（令牌 ID，会话吊销的依据）/ exp（过期），
 /// iss / aud 与配置一致——这样签出的令牌能直接通过内核管道 Authenticate 阶段的校验。
-/// 双轨会话：JWT 轨负责验签（无状态），Redis 轨负责吊销（见 Sessions/SessionStore），
+/// 双轨会话：JWT 轨负责验签（无状态），Redis 轨负责吊销（见 <see cref="SessionStore"/>），
 /// SessionGateHandler 验签通过后查 Redis 会话存在才放行。
 /// </summary>
 public sealed class JwtTokenIssuer(IConfiguration configuration)
@@ -56,9 +54,3 @@ public sealed class JwtTokenIssuer(IConfiguration configuration)
         return (_handler.CreateToken(descriptor), jti, ExpiresInSeconds);
     }
 }
-
-/// <summary>whoami 请求（空载荷）</summary>
-public sealed record WhoAmIRequest;
-
-/// <summary>whoami 响应：当前调用方身份（受保护接口的示例，验证 JWT 校验真实生效）</summary>
-public sealed record WhoAmIResponse(bool IsAuthenticated, string? Id, string? Scheme, string? DisplayName);

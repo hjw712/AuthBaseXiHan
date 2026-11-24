@@ -9,8 +9,11 @@
 src-xihan/AuthBaseXiHan/
 ├── Program.cs                    # 入口：AddRepository + 装配 Minimal Profile / HTTP 协议 / EF Core 持久化 / Redis 缓存 / AuthFeature
 ├── Operations/
-│   ├── AuthOperations.cs         # 三个操作契约：注册/登录/whoami（受保护示例） + 请求/响应 record
-│   └── JwtTokenIssuer.cs         # JWT 签发（HS256，与 Security.Jwt 同一密钥；框架只校验不签发）
+│   └── AuthOperations.cs         # 六个操作：注册/图形验证码/登录/查询当前身份/登出/强制下线 + 各自的请求/响应 record
+├── Sessions/
+│   ├── JwtTokenIssuer.cs         # JWT 签发（HS256，与 Security.Jwt 同一密钥；框架只校验不签发）
+│   ├── SessionStore.cs           # Redis 会话白名单：jti 登记 / 吊销 / 强制下线
+│   └── SessionGateHandler.cs     # 会话门禁：验签通过后再查 Redis 会话存在才放行
 ├── Persistence/
 │   ├── User.cs                   # 用户实体（IEntity<long> + [EntityIndex] 唯一索引声明）
 │   └── AuthDbContext.cs          # 应用自己的 DbContext + ApplyPersistenceConventions
@@ -172,7 +175,7 @@ D:/Redis-8.10.3/redis-cli.exe ttl "authbase:auth:session:<token>"    # 看剩余
 
 | 环节 | 实现 |
 |---|---|
-| 签发 | `Operations/JwtTokenIssuer.cs`（HS256，`sub`=用户 ID、`name`=账号、`jti`=会话 ID（随机 GUID）、7 天过期，iss/aud 与配置一致） |
+| 签发 | `Sessions/JwtTokenIssuer.cs`（HS256，`sub`=用户 ID、`name`=账号、`jti`=会话 ID（随机 GUID）、7 天过期，iss/aud 与配置一致） |
 | 会话登记 | 登录时 `Sessions/SessionStore.SaveAsync` 写 Redis：`auth:sessions:{jti}` → 用户 ID，TTL 与令牌一致（7 天）；另维护 `auth:sessions:user:{userId}` → jti 列表（强制下线索引用） |
 | 验签 | `JwtSecurityFeature`（内核管道 Authenticate 阶段，`XiHan:Security:Jwt` 配置） |
 | 会话门禁 | `Sessions/SessionGateHandler` 装饰框架 JWT 处理器：验签通过后查 Redis 会话存在才放行；不存在即 401（`SECURITY_DENIED_003`，带 WWW-Authenticate） |

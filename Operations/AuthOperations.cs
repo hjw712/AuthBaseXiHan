@@ -173,10 +173,9 @@ public sealed record LoginRequest(string CaptchaId, string CaptchaCode, string U
 public sealed record LoginResponse(string Token, int ExpiresIn);
 #endregion
 
-#region whoami
-// 请求/响应契约 WhoAmIRequest / WhoAmIResponse 定义在 JwtTokenIssuer.cs（签发器同用），不在本文件
+#region 查询当前身份
 /// <summary>
-/// whoami 操作：受保护接口示例，Policy=authenticated 要求登录（JWT 校验生效才有主体）。
+/// 查询当前身份 操作：受保护接口示例，Policy=authenticated 要求登录（JWT 校验生效才有主体）。
 /// 契约 ID auth.whoami → GET /auth:whoami（whoami 非标准动词，ReadOnly 标记只读可重复调用）
 /// </summary>
 [Operation(WhoAmIOperation.Id, Stability = Stability.Experimental, Expose = Expose.Http,
@@ -196,6 +195,16 @@ public sealed class WhoAmIOperation : IOperation<WhoAmIRequest, WhoAmIResponse>
             principal.DisplayName)));
     }
 }
+
+/// <summary>查询当前身份请求（空载荷）</summary>
+public sealed record WhoAmIRequest;
+
+/// <summary>查询当前身份响应：当前调用方身份</summary>
+/// <param name="IsAuthenticated">是否已认证</param>
+/// <param name="Id">主体 ID（用户 ID），未认证为 null</param>
+/// <param name="Scheme">认证方案</param>
+/// <param name="DisplayName">显示名（账号）</param>
+public sealed record WhoAmIResponse(bool IsAuthenticated, string? Id, string? Scheme, string? DisplayName);
 #endregion
 
 #region 登出
