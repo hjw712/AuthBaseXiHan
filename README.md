@@ -231,21 +231,27 @@ ANCM（ASP.NET Core Module v2）的**应用卷影复制（Shadow Copy）**让 II
 
 ### 配置（web.config）
 
-项目根的 `web.config` 已预置以下属性，`dotnet publish` 会以此为模板合并（保留这些属性）：
+项目根的 `web.config` 已预置以下节点，`dotnet publish` 会以此为模板合并（保留这些设置）：
 
 ```xml
 <aspNetCore processPath="dotnet" arguments=".\AuthBaseXiHan.dll"
             stdoutLogEnabled="false" stdoutLogFile=".\logs\stdout"
-            hostingModel="inprocess"
-            enableShadowCopy="true"
-            shadowCopyDirectory="..\AuthBaseXiHan_ShadowCopy"
-            cleanShadowCopyDirectory="true" />
+            hostingModel="inprocess">
+  <handlerSettings>
+    <handlerSetting name="enableShadowCopy" value="true" />
+    <handlerSetting name="shadowCopyDirectory" value="..\AuthBaseXiHan_ShadowCopy\" />
+    <handlerSetting name="cleanShadowCopyDirectory" value="true" />
+  </handlerSettings>
+</aspNetCore>
 ```
 
-| 属性 | 作用 |
+**注意写法**：三个键是 `<handlerSettings>` 下的 `<handlerSetting name="..." value="..." />` **子元素**，
+**不是** `<aspNetCore>` 的 XML 属性。写成属性 ANCM 不会识别，卷影复制静默失效（本机曾踩过这个坑）。
+
+| handlerSetting name | 作用 |
 |---|---|
 | `enableShadowCopy` | `true` 开启卷影复制 |
-| `shadowCopyDirectory` | 副本目录，用 `..` 放到**站点目录之外**，避免发布时被同步/删除 |
+| `shadowCopyDirectory` | 副本目录，用 `..` 放到**站点目录之外**，避免发布时被同步/删除；应用池身份需有「修改」权限 |
 | `cleanShadowCopyDirectory` | 启动时先清理再复制，避免升级 .NET 后残留旧程序集导致 `500.30`（默认 `false`，建议开） |
 
 **版本要求**：属性名取决于服务器 **Hosting Bundle** 版本（与本项目的 net10.0 无关）：
@@ -270,8 +276,8 @@ cd D:\个人项目\admin-template\src-xihan\AuthBaseXiHan
 ### 验证
 
 ```powershell
-# 1. 发布的 web.config 含三个属性（脚本已自动校验）
-Select-String -Path D:\个人发布项目\AuthBaseXiHan\web.config -Pattern "enableShadowCopy"
+# 1. 发布的 web.config 含 handlerSettings 三个 handlerSetting（脚本会自动校验）
+Select-String -Path D:\个人发布项目\AuthBaseXiHan\web.config -Pattern "handlerSetting name=`"enableShadowCopy`""
 
 # 2. 站点能访问、登录流程正常
 curl https://localhost:44359/health/live
@@ -297,8 +303,8 @@ curl https://localhost:44359/health/live
 13. **消息目录键只允许小写字母/数字/下划线**（`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`），连字符不合法（启动抛 FrameworkException）；操作文档键由框架把操作 ID 的连字符转成下划线推导（`auth.logout-all` → `auth.logout_all.title`）
 14. **装饰框架认证处理器（会话门禁）**：内核 Authenticate 阶段按方案名取 DI 里「第一个」匹配的 `IAuthenticationHandler`，装饰器必须先于 `AddXiHan` 登记；内层处理器按具体类型（`JwtAuthenticationHandler`）显式注册后注入，不能注入 `IEnumerable<IAuthenticationHandler>`（包含自身，循环依赖）
 15. **自定义类型进 Redis 缓存**：缓存序列化链按源生成元数据解析，类型登记进 `AppJsonContext` 后调 `CacheSerializerRegistration.AddTypeInfo(services, AppJsonContext.Default)`；框架的 `IInvocationAuthenticationFilter` 只对绕过管道的端点生效，管道内请求的会话门禁必须走装饰认证处理器传输
-16. **无感更新用 ANCM 应用卷影复制，不是 `vssadmin` 系统卷影**：`vssadmin` 是磁盘备份快照、需管理员且不解决 DLL 锁定；正解是 `web.config` 配 `enableShadowCopy` + `shadowCopyDirectory` + `cleanShadowCopyDirectory`（Hosting Bundle ≥ 7.0）。副本目录必须放在站点目录之外，并给**应用池身份**授「修改」权限（缺权限启动 500）；它只减少停机、**不能做到严格零停机**，回收瞬间仍可能 503
-17. **预置 `web.config` 让发布自动生成卷影配置**：项目根放 `web.config`（含 `<handlers>` 与带 shadow copy 属性的 `<aspNetCore>`），`dotnet publish` 会以它为模板合并环境变量等，不会用 SDK 默认模板覆盖——已实测发布产物保留三个属性，CI/CD 无需发布后改服务器文件
+16. **无感更新用 ANCM 应用卷影复制，不是 `vssadmin` 系统卷影**：`vssadmin` 是磁盘备份快照、需管理员且不解决 DLL 锁定；正解是 `web.config` 里 `<aspNetCore>` 下加 `<handlerSettings>` 子元素，配 `enableShadowCopy` / `shadowCopyDirectory` / `cleanShadowCopyDirectory` 三个 `<handlerSetting name="..." value="..." />`（Hosting Bundle ≥ 7.0）。**必须写成 handlerSetting 子元素，写成 `<aspNetCore>` 的 XML 属性不会生效**。副本目录放站点外、给应用池身份授「修改」权限（缺权限启动 500）；它只减少停机、**不能严格零停机**，回收瞬间仍可能 503
+17. **预置 `web.config` 让发布自动生成卷影配置**：项目根放 `web.config`（含 `<handlers>` 与带 `<handlerSettings>` 的 `<aspNetCore>`），`dotnet publish` 会以它为模板合并环境变量等，不会用 SDK 默认模板覆盖——已实测发布产物保留 handlerSettings，CI/CD 无需发布后改服务器文件
 
 ## 已知问题（框架 rc.6）
 

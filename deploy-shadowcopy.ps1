@@ -10,9 +10,9 @@
        never syncs or deletes the running assemblies).
     2. Grant the IIS application pool identity Modify (read/write/delete) on it.
     3. dotnet publish to the site folder. web.config in the project root already
-       carries enableShadowCopy / shadowCopyDirectory / cleanShadowCopyDirectory,
-       and the Web SDK merges (not overwrites) it during publish.
-    4. Verify the generated web.config contains all three attributes.
+       carries <handlerSettings> with enableShadowCopy / shadowCopyDirectory /
+       cleanShadowCopyDirectory, and the Web SDK merges (not overwrites) it during publish.
+    4. Verify the generated web.config contains all three handlerSetting names.
 
   After this, ANCM runs the app from the shadow folder. The DLLs in the site folder
   are no longer locked, so you can publish again at any time without stopping IIS.
@@ -135,10 +135,14 @@ if (-not (Test-Path $webConfig)) { Write-Error "web.config not found: $webConfig
 $xml = [xml](Get-Content $webConfig -Raw)
 $node = $xml.configuration.location.'system.webServer'.aspNetCore
 if ($null -eq $node) { Write-Error "No <aspNetCore> node in web.config." }
-foreach ($attr in @("enableShadowCopy", "shadowCopyDirectory", "cleanShadowCopyDirectory")) {
-  if ($null -eq $node.$attr) { Write-Error "web.config is missing attribute '$attr'." }
+# Shadow copy is configured as <handlerSettings><handlerSetting name=... value=... />,
+# NOT as attributes on <aspNetCore>. Verify by name.
+$settings = @{}
+foreach ($s in $node.handlerSettings.handlerSetting) { $settings[$s.name] = $s.value }
+foreach ($name in @("enableShadowCopy", "shadowCopyDirectory", "cleanShadowCopyDirectory")) {
+  if (-not $settings.ContainsKey($name)) { Write-Error "web.config is missing handlerSetting '$name'." }
 }
-Write-Host "[4/4] web.config verified: shadow copy enabled."
+Write-Host "[4/4] web.config verified: shadow copy enabled via handlerSettings."
 
 # ---------- optional recycle ----------
 if ($Recycle) {
