@@ -1,7 +1,10 @@
 using AuthBaseXiHan;
+using AuthBaseXiHan.Features;
+using AuthBaseXiHan.Operations;
 using AuthBaseXiHan.Persistence;
-using AuthBaseXiHan.Sessions;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.EntityFrameworkCore;
+using StackExchange.Redis;
 using XiHan.Framework.Caching.Abstractions.Serialization;
 using XiHan.Framework.Caching.Redis;
 using XiHan.Framework.Hosting.AspNetCore;
@@ -16,8 +19,21 @@ using XiHan.Framework.Profiles.Minimal;
 using XiHan.Framework.Protocols.Http;
 using XiHan.Framework.Protocols.Http.OpenApi;
 using XiHan.Framework.Protocols.Http.Routing;
+using AuthBaseXiHan.Sessions.Admin;
+using AuthBaseXiHan.Sessions.Captcha;
+using AuthBaseXiHan.Sessions.Jwt;
+using AuthBaseXiHan.Sessions.Session;
 
 var builder = WebApplication.CreateBuilder(args);
+
+// 数据保护：为模型 API Key 加密提供密钥环。
+// 持久化到 Redis（本机已在用），多实例部署时彼此能解同一份密文；
+// 应用名隔离不同应用的密钥，避免同 Redis 下互相干扰。
+var dpRedis = ConnectionMultiplexer.Connect(
+    builder.Configuration["XiHan:Caching:Redis:Configuration"] ?? "127.0.0.1:6379,abortConnect=false");
+builder.Services.AddDataProtection()
+    .PersistKeysToStackExchangeRedis(dpRedis, "authbase:dpapi-keys")
+    .SetApplicationName("AuthBaseXiHan");
 
 // 会话双轨（JWT 验签 + Redis 吊销）：
 // ① 会话存储与门禁处理器——门禁装饰框架的 JwtAuthenticationHandler（验签后查 Redis 会话），
@@ -27,13 +43,20 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddSingleton<JwtAuthenticationHandler>();
 builder.Services.AddSingleton<SessionStore>();
 builder.Services.AddSingleton<CaptchaStore>();
+// 通用凭据登录流：auth.login 与 admin.login 共享（验证码 + 防时序比对 + 会话登记）
+builder.Services.AddSingleton<CredentialAuthenticator>();
 builder.Services.AddSingleton<IAuthenticationHandler, SessionGateHandler>();
 // ② 自定义类型进缓存序列化器：会话索引 string[] 的源生成元数据交给缓存序列化链
 CacheSerializerRegistration.AddTypeInfo(builder.Services, AppJsonContext.Default);
 
-// 登记实体：持久化 Provider 据此注册闭合泛型仓储 IRepository<User, long>
+// 登记实体：持久化 Provider 据此注册闭合泛型仓储 IRepository<User, long> 等
 // 必须在 AddXiHan 之前或特性的 Configure 里调用
 builder.Services.AddRepository<User, long>();
+builder.Services.AddRepository<AdminUser, long>();
+builder.Services.AddRepository<PromptConfig, long>();
+
+// 分页配置：列表接口的默认页大小与上限（Operations/Paging.cs 的 PagingOptions，绑定 "Paging" 配置节）
+builder.Services.Configure<PagingOptions>(builder.Configuration.GetSection(PagingOptions.SectionName));
 
 // JWT 签发服务（Security.Jwt 只校验不签发，签发由应用自己完成）
 builder.Services.AddSingleton<JwtTokenIssuer>();
@@ -65,9 +88,23 @@ builder.AddXiHan(xihan => xihan
     .UseFeature<JwtSecurityFeature>()
     // 内存授予存储：装配 JWT 后它让出认证、只保留 RBAC 授权（security.authorization@1）
     .UseFeature<InMemorySecurityFeature>()
-    .UseFeature<AuthFeature>());
+    .UseFeature<AuthFeature>()
+    .UseFeature<AdminFeature>()
+    .UseFeature<AiFeature>());
 
 var app = builder.Build();
+
+// 表自愈：EnsureCreated 只对全新库建表，已有库新增实体（如 AI 模块）需要补齐。
+// 在内核管道启动前执行，确保后续请求访问新表时不会报「对象名无效」。
+using (var scope = app.Services.CreateScope())
+{
+    var db = scope.ServiceProvider.GetRequiredService<AuthDbContext>();
+    await DbInitializer.EnsureTablesAsync(db);
+
+    // 超管引导：管理账号没有注册接口，第一个超级管理员从 Admin:Bootstrap 配置落地
+    //（账号已存在时什么都不做，运行期改动以管理接口为准）
+    await AdminBootstrap.SeedAsync(db, app.Services.GetRequiredService<IConfiguration>());
+}
 
 // 静态文件（Scalar 文档查看器页面）不经内核管道，必须放在 UseXiHan 之前
 app.UseStaticFiles();

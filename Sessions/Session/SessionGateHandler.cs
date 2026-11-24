@@ -4,7 +4,7 @@ using XiHan.Framework.Security.Jwt;
 using XiHan.Framework.Security.Abstractions;
 using XiHan.Framework.Security.Abstractions.Authentication;
 
-namespace AuthBaseXiHan.Sessions;
+namespace AuthBaseXiHan.Sessions.Session;
 
 /// <summary>
 /// 会话门禁：JWT + Redis 双轨的校验侧

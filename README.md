@@ -153,7 +153,7 @@ D:/Redis-8.10.3/redis-cli.exe ttl "authbase:auth:session:<token>"    # 看剩余
 
 | 场景 | 结果 |
 |---|---|
-| `GET /auth:captcha` | `200 {"captchaId":"…","image":"data:image/svg+xml;base64,…","expiresIn":120}`（SVG 验证码，前端直接 `<img src>`） |
+| `GET /common:captcha` | `200 {"captchaId":"…","image":"data:image/svg+xml;base64,…","expiresIn":120}`（SVG 验证码，前端直接 `<img src>`） |
 | `POST /auth:register` 成功 | `200 {"userId":1}` |
 | 重复注册 | `409` code=`AUTH_CONFLICT_001`「账号已存在」 |
 | `POST /auth:login` 成功 | `200 {"token":"<JWT>","expiresIn":604800}` |
@@ -161,13 +161,13 @@ D:/Redis-8.10.3/redis-cli.exe ttl "authbase:auth:session:<token>"    # 看剩余
 | 账号/密码错误 | `403` code=`AUTH_DENIED_001`（不区分具体原因，防账号枚举，恒定一次 BCrypt 耗时防时序枚举） |
 | 账号格式非法 | `400` code=`AUTH_VALIDATION_001`（显式校验） |
 | 缺必填字段 | `400` code=`KERNEL_VALIDATION_003`（框架按 JSON Schema 自动拒绝） |
-| `GET /auth:whoami` 带有效 `Authorization: Bearer <JWT>` | `200 {"isAuthenticated":true,"id":"1","scheme":"Bearer","displayName":"…"}` |
-| `GET /auth:whoami` 不带令牌 | `401` code=`SECURITY_DENIED_001`，带 `WWW-Authenticate: Bearer` |
-| `GET /auth:whoami` 令牌伪造/过期/签名不符 | `401` code=`SECURITY_DENIED_003`（不区分原因，细节只进日志） |
+| `GET /common:whoami` 带有效 `Authorization: Bearer <JWT>` | `200 {"isAuthenticated":true,"id":"1","scheme":"Bearer","displayName":"…"}` |
+| `GET /common:whoami` 不带令牌 | `401` code=`SECURITY_DENIED_001`，带 `WWW-Authenticate: Bearer` |
+| `GET /common:whoami` 令牌伪造/过期/签名不符 | `401` code=`SECURITY_DENIED_003`（不区分原因，细节只进日志） |
 
 校验规则与旧版一致：账号 4-20 位字母/数字/下划线；密码 8-32 位含字母数字；BCrypt 加盐哈希。
 
-**登录流程（须先取验证码）**：`GET /auth:captcha` 取 `captchaId` 与图像 → 用户输入 4 位字符 → `POST /auth:login` 带 `captchaId + captchaCode + userName + password`。验证码存 Redis（键 `auth:captchas:{id}`，TTL 2 分钟），**读后即删一次有效**（对错都作废，防重试爆破）；比对忽略大小写；字符集去掉了 0/O、1/I/l 等易混字符。验证码为 SVG 纯字符串生成（`Sessions/CaptchaGenerator.cs`），无 System.Drawing 原生依赖，AOT 安全。
+**登录流程（须先取验证码）**：`GET /common:captcha` 取 `captchaId` 与图像 → 用户输入 4 位字符 → `POST /auth:login` 带 `captchaId + captchaCode + userName + password`。验证码存 Redis（键 `auth:captchas:{id}`，TTL 2 分钟），**读后即删一次有效**（对错都作废，防重试爆破）；比对忽略大小写；字符集去掉了 0/O、1/I/l 等易混字符。验证码为 SVG 纯字符串生成（`Sessions/CaptchaGenerator.cs`），无 System.Drawing 原生依赖，AOT 安全。
 
 ## 认证（JWT + Redis 会话双轨）
 
@@ -187,8 +187,8 @@ D:/Redis-8.10.3/redis-cli.exe ttl "authbase:auth:session:<token>"    # 看剩余
 
 | 接口 | 说明 |
 |---|---|
-| `POST /auth:logout` | 登出：吊销当前令牌的会话（请求体 `{}`），调用后当前令牌立即失效 |
-| `POST /auth:logout-all` | 强制下线：吊销该账号在所有设备的会话，返回吊销数（改密码/疑似被盗时用） |
+| `POST /common:logout` | 登出：吊销当前令牌的会话（请求体 `{}`），调用后当前令牌立即失效 |
+| `POST /common:logout-all` | 强制下线：吊销该账号在所有设备的会话，返回吊销数（改密码/疑似被盗时用） |
 
 配置（`appsettings.json`）：
 
@@ -216,7 +216,7 @@ D:/Redis-8.10.3/redis-cli.exe ttl "authbase:auth:session:<token>"    # 看剩余
 - 每个受保护请求多一次 Redis 读（亚毫秒级）换立即吊销能力；Redis 挂了会话门禁不可用（应用启动本来就要求 Redis 在线）
 - 旧格式令牌（无 `jti`，切换双轨前签发的）一律拒绝，客户端重新登录即可
 - OpenAPI 文档自动发布 `components.securitySchemes.bearer` 与全局 `security`，Scalar 有「Authorize」按钮
-- `GET /auth:whoami` 是受保护接口示例（`ReadOnly=true, Policy="authenticated"`），新受保护操作照此声明
+- `GET /common:whoami` 是受保护接口示例（`ReadOnly=true, Policy="authenticated"`），新受保护操作照此声明
 
 ## 部署：卷影复制与无感更新
 
@@ -306,8 +306,8 @@ curl https://localhost:44359/health/live
 9. **Redis 特性只提供 `caching.distributed`**：进程内 `ICache`（caching.local）仍由 Caching.InMemory/Hybrid 提供，本基座没装，业务只用 `ISharedCache`
 10. 源生成器排查方法：csproj 加 `EmitCompilerGeneratedFiles` 落盘查看，记得 `DefaultItemExcludes` 排除产物目录避免二次编译
 11. **JSON 响应里的中文显示为 `\uXXXX` 转义**：框架写 JSON（ProblemDetails 的 `Utf8JsonWriter`、操作响应的源生成上下文）都用默认 Encoder，非 ASCII 一律转义——这是合法 JSON（客户端 `JSON.parse` 后内容正确），只是 Scalar/curl 等原始视图不可读，rc.6 未暴露 Encoder 配置口。解法见 `ReadableJsonMiddleware`：在响应边缘把 JSON 解析后用 `JavaScriptEncoder.UnsafeRelaxedJsonEscaping` 重写直出中文。实现有两个关键点：①框架用 `Response.HasStarted` 判定端点是否已写过响应（成功只写一次、失败才写 ProblemDetails），缓冲流会让它恒为 false、成功响应被写两遍，故首写时直接 flush 原始流发送响应头（`HttpResponse.StartAsync` 内部也是靠 flush 触发的，换成缓冲流后走不到 Kestrel）；②显式 Content-Length 是按转义字节数算的，重写后长度变化，先清掉改用分块
-12. **操作 ID 文法是全小写 + 连字符**：`^[a-z][a-z0-9]*(-[a-z0-9]+)*\.[a-z][a-z0-9]*(-[a-z0-9]+)*$`（如 `auth.logout-all`），驼峰（`logoutAll`）直接编译报 XHG003
-13. **消息目录键只允许小写字母/数字/下划线**（`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`），连字符不合法（启动抛 FrameworkException）；操作文档键由框架把操作 ID 的连字符转成下划线推导（`auth.logout-all` → `auth.logout_all.title`）
+12. **操作 ID 文法是全小写 + 连字符**：`^[a-z][a-z0-9]*(-[a-z0-9]+)*\.[a-z][a-z0-9]*(-[a-z0-9]+)*$`（如 `common.logout-all`），驼峰（`logoutAll`）直接编译报 XHG003
+13. **消息目录键只允许小写字母/数字/下划线**（`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`），连字符不合法（启动抛 FrameworkException）；操作文档键由框架把操作 ID 的连字符转成下划线推导（`common.logout-all` → `common.logout_all.title`）
 14. **装饰框架认证处理器（会话门禁）**：内核 Authenticate 阶段按方案名取 DI 里「第一个」匹配的 `IAuthenticationHandler`，装饰器必须先于 `AddXiHan` 登记；内层处理器按具体类型（`JwtAuthenticationHandler`）显式注册后注入，不能注入 `IEnumerable<IAuthenticationHandler>`（包含自身，循环依赖）
 15. **自定义类型进 Redis 缓存**：缓存序列化链按源生成元数据解析，类型登记进 `AppJsonContext` 后调 `CacheSerializerRegistration.AddTypeInfo(services, AppJsonContext.Default)`；框架的 `IInvocationAuthenticationFilter` 只对绕过管道的端点生效，管道内请求的会话门禁必须走装饰认证处理器传输
 16. **无感更新用 ANCM 应用卷影复制，不是 `vssadmin` 系统卷影**：`vssadmin` 是磁盘备份快照、需管理员且不解决 DLL 锁定；正解是 `web.config` 里 `<aspNetCore>` 下加 `<handlerSettings>` 子元素，配 `enableShadowCopy` / `shadowCopyDirectory` / `cleanShadowCopyDirectory` 三个 `<handlerSetting name="..." value="..." />`（Hosting Bundle ≥ 7.0）。**必须写成 handlerSetting 子元素，写成 `<aspNetCore>` 的 XML 属性不会生效**。副本目录放站点外、给应用池身份授「修改」权限（缺权限启动 500）；它只减少停机、**不能严格零停机**，回收瞬间仍可能 503
@@ -326,7 +326,7 @@ curl https://localhost:44359/health/live
 ## 当前状态与后续
 
 - 存储：**SQL Server + EF Core（EnsureCreated 自动建表，不用迁移）**，数据持久化（重启后账号仍在）
-- 认证：**JWT + Redis 会话双轨（JWT 验签 + Redis 吊销，HS256，7 天有效期）**——`JwtTokenIssuer` 签发（含 `jti`）+ `JwtSecurityFeature` 验签 + `SessionGateHandler` 会话门禁 + `InMemorySecurityFeature` RBAC 授权；`GET /auth:whoami` 为受保护接口示例；`POST /auth:logout` 登出、`POST /auth:logout-all` 强制下线均已可用
+- 认证：**JWT + Redis 会话双轨（JWT 验签 + Redis 吊销，HS256，7 天有效期）**——`JwtTokenIssuer` 签发（含 `jti`）+ `JwtSecurityFeature` 验签 + `SessionGateHandler` 会话门禁 + `InMemorySecurityFeature` RBAC 授权；`GET /common:whoami` 为受保护接口示例；`POST /common:logout` 登出、`POST /common:logout-all` 强制下线均已可用
 - Redis：承载会话白名单（`auth:sessions:{jti}` + 用户会话索引）、幂等/分布式锁等框架能力
 - 单设备登录（新登录踢掉旧端）：在 `SessionStore.SaveAsync` 里吊销该用户旧会话即可扩展
 - 接入 gRPC/MCP/CLI 只需给 `[Operation]` 加 `Expose.Grpc` 等并安装对应协议包

@@ -4,7 +4,7 @@ using XiHan.Framework.Kernel.Hosting;
 using XiHan.Framework.Primitives;
 using XiHan.Framework.Primitives.Manifests;
 
-namespace AuthBaseXiHan;
+namespace AuthBaseXiHan.Features;
 
 /// <summary>
 /// 认证特性：内核装配的最小单元。
@@ -24,5 +24,10 @@ public sealed class AuthFeature : IFeature
         Entry = typeof(AuthFeature).FullName,
     };
 
-    public void Configure(FeatureContext context) => context.AddGeneratedOperations();
+    public void Configure(FeatureContext context)
+    {
+        // whoami / logout / logout-all 为单接口双轨通用（挂 authenticated 策略，
+        // 轨道从 token_kind claim 推导），本特性无需注册任何会话策略
+        context.AddGeneratedOperations();
+    }
 }

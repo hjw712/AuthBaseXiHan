@@ -7,13 +7,21 @@
     <!-- OpenAPI 文档的字段说明来自 DTO 的 XML 注释（Kernel.Generators 折进 Schema description） -->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
+    <UserSecretsId>cbe200ad-efc8-4972-87ba-e74dbe45ef42</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="BCrypt.Net-Next" Version="4.0.3" />
+    <PackageReference Include="Microsoft.AspNetCore.DataProtection.StackExchangeRedis" Version="11.0.0" />
     <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="10.0.14" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Tools" Version="10.0.9">
+      <PrivateAssets>all</PrivateAssets>
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.AI" Version="11.0.1" />
+    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="11.0.1" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
-    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="9.0.21" />
+    <PackageReference Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />
     <PackageReference Include="XiHan.Framework.Caching.Redis" Version="5.0.0-rc.6" />
     <PackageReference Include="XiHan.Framework.Kernel.Generators" Version="5.0.0-rc.6">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>

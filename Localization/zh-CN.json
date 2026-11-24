@@ -2,26 +2,102 @@
   "auth.register.title": "注册新账号",
   "auth.register.description": "创建新用户账号：账号全局唯一，密码 BCrypt 加盐哈希入库。成功返回用户 ID。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：AUTH_VALIDATION_001（400，账号须 4-20 位字母/数字/下划线）、AUTH_VALIDATION_002（400，密码须 8-32 位含字母和数字）、AUTH_CONFLICT_001（409，账号已存在）。",
 
-  "auth.captcha.title": "获取图形验证码",
-  "auth.captcha.description": "生成 4 位图形验证码（SVG，data URI 直接作 &lt;img src&gt;），返回 captchaId 与有效期。验证码存 Redis，2 分钟过期、验证一次即作废（无论对错），防重试爆破。登录前须先取码。",
+  "common.captcha.title": "获取图形验证码",
+  "common.captcha.description": "生成 4 位图形验证码（SVG，data URI 直接作 &lt;img src&gt;），返回 captchaId 与有效期。验证码存 Redis，2 分钟过期、验证一次即作废（无论对错），防重试爆破。登录前须先取码（用户登录与管理员登录共用）。",
 
   "auth.login.title": "登录",
   "auth.login.description": "校验图形验证码与账号密码，成功签发会话令牌（有效期 7 天，JWT + Redis 会话双轨：JWT 负责验签，Redis 记录有效会话，登出/强制下线立即吊销）。验证码先验且读后即删（一次有效），账号不存在与密码错误返回同一错误码，防账号枚举。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：AUTH_VALIDATION_003（400，验证码错误或已过期，请重新获取）、AUTH_DENIED_001（403，账号或密码错误）、KERNEL_VALIDATION_001（400，请求体不是 JSON 对象）；缺必填字段由请求 Schema 自动校验，返回 400。",
 
-  "auth.logout.title": "登出",
-  "auth.logout.description": "吊销当前令牌的会话，调用后当前令牌立即失效（请求体传 {}）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：SECURITY_DENIED_001（401，未携带令牌）；会话已被吊销的调用过不了认证，无需在本操作处理。",
+  "common.logout.title": "登出（用户/管理员通用）",
+  "common.logout.description": "吊销当前令牌的会话，调用后当前令牌立即失效（请求体传 {}）。用户令牌与管理员令牌通用：会话轨道从令牌的 token_kind 自动推导，吊销各自轨道的会话。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：SECURITY_DENIED_001（401，未携带令牌）；会话已被吊销的调用过不了认证，无需在本操作处理。",
 
-  "auth.logout_all.title": "强制下线（退出全部设备）",
-  "auth.logout_all.description": "吊销当前账号在所有设备的会话（改密码、疑似账号被盗时用），返回吊销的会话数，调用方自己的令牌也随之失效（请求体传 {}）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：SECURITY_DENIED_001（401，未携带令牌）。",
+  "common.logout_all.title": "强制下线（退出全部设备，用户/管理员通用）",
+  "common.logout_all.description": "吊销当前账号在其所属会话轨道（用户/管理员，由令牌 token_kind 推导）所有设备的会话（改密码、疑似账号被盗时用），返回吊销的会话数，调用方自己的令牌也随之失效（请求体传 {}）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：SECURITY_DENIED_001（401，未携带令牌）。",
 
-  "auth.whoami.title": "查询当前身份",
-  "auth.whoami.description": "返回当前调用方的身份信息：是否已登录、用户 ID、认证方式与显示名，用于验证令牌是否真实有效。调用时须携带 Bearer 令牌（Authorization: Bearer <token>）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：SECURITY_DENIED_001（401，未携带令牌）、SECURITY_DENIED_003（401，令牌无效或会话已吊销/已登出）。",
+  "common.whoami.title": "查询当前身份（用户/管理员通用）",
+  "common.whoami.description": "返回当前调用方的身份信息：是否已登录、主体 ID（用户 ID 或管理员 ID）、认证方式、显示名与角色列表。用户令牌与管理员令牌通用：管理员恒有 admin 角色，超级管理员另有 admin.super 与 llm.admin，前端可据此显隐管理入口。调用时须携带 Bearer 令牌（Authorization: Bearer <token>）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：SECURITY_DENIED_001（401，未携带令牌）、SECURITY_DENIED_003（401，令牌无效或会话已吊销/已登出）。",
 
-  "openapi.tags.auth.name": "认证",
-  "openapi.tags.auth.description": "注册、登录、登出、强制下线与身份查询",
+  "openapi.tags.auth.name": "用户登录注册认证",
+  "openapi.tags.auth.description": "注册与登录（用户会话操作在「通用会话」分组）",
+
+  "openapi.tags.common.name": "通用模块",
+  "openapi.tags.common.description": "验证码、身份查询、登出与强制下线——用户令牌与管理员令牌通用，会话轨道从令牌自动推导",
+
+  "openapi.tags.admin.name": "管理模块",
+  "openapi.tags.admin.description": "管理账号登录与管理员管理（开通/重置/停用/删除；无注册接口，账号由超级管理员开通）",
+
+  "admin.login.title": "管理员登录",
+  "admin.login.description": "校验图形验证码与管理员账号密码（独立 AdminUsers 表，不走注册），成功签发管理会话令牌（有效期 7 天，JWT + Redis 双轨会话，登出/强制下线立即吊销）。普通管理员带 admin 角色；超级管理员另带 admin.super 与 llm.admin（可开通账号并管理模型配置）。停用账号拒绝登录。验证码与管理端共用 GET /common:captcha，先验且读后即删。登出/强制下线/身份查询使用通用接口 common.logout / common.logout-all / common.whoami（管理员令牌可直接调用）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：ADMIN_VALIDATION_003（400，验证码错误或已过期，请重新获取）、ADMIN_DENIED_004（403，账号或密码错误）、ADMIN_DENIED_005（403，账号已停用）；账号不存在与密码错误同码返回，防账号枚举。",
+
+  "admin.users.title": "查询管理员列表",
+  "admin.users.description": "分页列出管理员账号（按 ID 排序），只回账号元信息，密码哈希永不外泄。查询参数：page（页码，默认 1）、pageSize（每页条数，不传用服务端配置 Paging:DefaultPageSize，上限 Paging:MaxPageSize）、query（可选，按账号包含匹配筛选关键字）。响应含 total 总条数。仅超级管理员可用。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：PAGING_VALIDATION_001（400，分页参数超出范围）、ADMIN_DENIED_001（403，请先登录）、ADMIN_DENIED_003（403，需要超级管理员权限）。",
+
+  "admin.createuser.title": "开通管理员账号",
+  "admin.createuser.description": "开通一个新的管理账号（管理账号的唯一入口，没有注册接口）：账号全局唯一、密码 BCrypt 加盐哈希入库，可同时授予超级管理员权限（isSuperAdmin）。账号与密码强度规则与注册接口一致。仅超级管理员可用。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：ADMIN_VALIDATION_001（400，账号须 4-20 位字母/数字/下划线）、ADMIN_VALIDATION_002（400，密码须 8-32 位含字母和数字）、ADMIN_CONFLICT_001（409，账号已存在）、ADMIN_DENIED_001（403，请先登录）、ADMIN_DENIED_003（403，需要超级管理员权限）。",
+
+  "admin.resetpassword.title": "重置管理员密码",
+  "admin.resetpassword.description": "超级管理员为任意管理员重置密码（8-32 位，须含字母和数字）；成功后立即吊销该管理员全部会话，所有已登录端必须重新登录。仅超级管理员可用。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：ADMIN_VALIDATION_002（400，密码须 8-32 位含字母和数字）、ADMIN_NOTFOUND_001（404，管理员不存在）、ADMIN_DENIED_001（403，请先登录）、ADMIN_DENIED_003（403，需要超级管理员权限）。",
+
+  "admin.setstatus.title": "启用/停用管理员账号",
+  "admin.setstatus.description": "启用或停用一个管理账号：停用后该账号不能再登录，且其全部已有会话立即吊销；不允许停用当前登录的账号（防误操作把自己锁死）。仅超级管理员可用。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：ADMIN_VALIDATION_004（400，不能停用当前登录的账号）、ADMIN_NOTFOUND_001（404，管理员不存在）、ADMIN_DENIED_001（403，请先登录）、ADMIN_DENIED_003（403，需要超级管理员权限）。",
+
+  "admin.deleteuser.title": "删除管理员账号",
+  "admin.deleteuser.description": "物理删除一个管理账号，同时吊销其全部会话。不允许删除当前登录的账号，也不允许删除最后一个超级管理员（保证系统始终有开通入口）。仅超级管理员可用。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：ADMIN_VALIDATION_005（400，不能删除当前登录的账号）、ADMIN_VALIDATION_006（400，不能删除最后一个超级管理员）、ADMIN_NOTFOUND_001（404，管理员不存在）、ADMIN_DENIED_001（403，请先登录）、ADMIN_DENIED_003（403，需要超级管理员权限）。",
+
+  "openapi.tags.ai.name": "AI模块",
+  "openapi.tags.ai.description": "大模型问答（登录后可用，模型凭据存数据库，按租户隔离）",
+
+  "openapi.tags.llm.name": "模型模块",
+  "openapi.tags.llm.description": "模型凭据配置与连通性诊断（需 llm.admin 权限）",
+
+  "openapi.tags.prompt.name": "提示词管理",
+  "openapi.tags.prompt.description": "提示词独立于模型配置：同一个模型可按调用参数换用不同提示词（需 llm.admin 权限）",
+
+  "ai.chat.title": "模型对话（单轮问答）",
+  "ai.chat.description": "把问题发给数据库里配置的大模型，返回回答与 token 计量。别名不传时用 default 配置；提示词与模型解耦——请求传 promptAlias 时按租户从提示词表实时取该提示词作 system 消息（改完立即生效），不传时用模型配置的默认提示词（若配置了）；模型配置按租户 + 别名动态加载，Key 加密存储且不写进配置文件。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：AI_VALIDATION_001（400，问题为空或超过 2000 字符）、AI_VALIDATION_002（400，提示词别名不存在或未启用）、AI_UNEXPECTED_001（500，模型调用失败，详情看服务端日志）、SECURITY_DENIED_001（401，未携带令牌）。",
+
+  "prompt.configs.title": "查询提示词列表",
+  "prompt.configs.description": "分页列出当前租户的提示词（按别名排序）。查询参数：page（页码，默认 1）、pageSize（每页条数，不传用服务端配置 Paging:DefaultPageSize，上限 Paging:MaxPageSize）、query（可选，按别名包含匹配筛选关键字）。响应含 total 总条数。提示词独立于模型配置，对话接口用 promptAlias 引用。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：PAGING_VALIDATION_001（400，分页参数超出范围）、LLM_DENIED_001（401，未携带令牌）、LLM_DENIED_002（403，需要 llm.admin 权限）。",
+  "prompt.upsert.title": "新增或更新提示词",
+  "prompt.upsert.description": "按 (租户, 别名) 新增或覆盖一条提示词：正文作为对话的 system 消息（1-4000 字符）。提示词每次对话实时查库，改完立即生效，无缓存。可用 isActive 控制启停，停用后不能被对话引用。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：PROMPT_VALIDATION_001（400，别名须 1-50 位字母/数字/下划线/中划线）、PROMPT_VALIDATION_002（400，内容不能为空且不超过 4000 字符）、PROMPT_CONFLICT_001（409，别名已存在）、LLM_DENIED_001（401，未携带令牌）、LLM_DENIED_002（403，需要 llm.admin 权限）。",
+  "prompt.deleteprompt.title": "删除提示词",
+  "prompt.deleteprompt.description": "按提示词 ID 删除当前租户的一条提示词。配置不存在返回 404。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：PROMPT_NOTFOUND_001（404，提示词不存在）、LLM_DENIED_001（401，未携带令牌）、LLM_DENIED_002（403，需要 llm.admin 权限）。",
+
+  "llm.configs.title": "查询模型配置列表",
+  "llm.configs.description": "分页列出当前租户的模型配置（按别名排序）。查询参数：page（页码，默认 1）、pageSize（每页条数，不传用服务端配置 Paging:DefaultPageSize，上限 Paging:MaxPageSize）、query（可选，按别名包含匹配筛选关键字）。响应含 total 总条数。API Key 只返回掩码（sk-****），明文与密文永不离开服务端。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：PAGING_VALIDATION_001（400，分页参数超出范围）、LLM_DENIED_001（401，未携带令牌）、LLM_DENIED_002（403，需要 llm.admin 权限）。",
+
+  "llm.upsertconfig.title": "新增或更新模型配置",
+  "llm.upsertconfig.description": "创建或覆盖一条模型配置：Endpoint / 模型名入库，API Key 用 Data Protection 加密后存储（列表只回掩码）；可同时配置系统提示词（systemPrompt，≤4000 字符），对话时作为 system 消息前置。更新时不传 ApiKey / SystemPrompt 表示保留原值，SystemPrompt 传空串表示清空；成功后立即清除客户端缓存，下一次对话即用新配置，无需重启服务。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：LLM_VALIDATION_001（400，别名格式错误，须 1-50 位字母/数字/下划线/中划线）、LLM_VALIDATION_002（400，接口地址须为 HTTPS，本机开发允许 http://localhost）、LLM_VALIDATION_003（400，模型名不能为空）、LLM_VALIDATION_004（400，新增时 API Key 不能为空）、LLM_VALIDATION_006（400，系统提示词超过 4000 字符）、LLM_DENIED_001（401，未携带令牌）、LLM_DENIED_002（403，需要 llm.admin 权限）。",
+
+  "llm.testconfig.title": "测试模型连通性",
+  "llm.testconfig.description": "用已保存的配置向模型发一次极简请求（ping），返回是否成功、耗时与模型回复摘要。只做诊断不写库，Key 不回显；上游错误只取首行返回，避免泄露敏感信息。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：LLM_VALIDATION_005（400，配置加载失败，别名不存在或配置未启用）、LLM_DENIED_001（401，未携带令牌）、LLM_DENIED_002（403，需要 llm.admin 权限）；模型侧不通时返回 success=false 与失败原因，HTTP 仍是 200。",
+
+  "llm.deleteconfig.title": "删除模型配置",
+  "llm.deleteconfig.description": "按配置 ID 删除当前租户的一条模型配置，并同步清除对应别名的客户端缓存。配置不存在返回 404。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：LLM_NOTFOUND_001（404，模型配置不存在）、LLM_DENIED_001（401，未携带令牌）、LLM_DENIED_002（403，需要 llm.admin 权限）。",
 
   "auth.session_invalid": "会话已失效或已注销，请重新登录",
   "auth.captcha_invalid": "验证码错误或已过期，请刷新后重试",
+
+  "admin.captcha_invalid": "验证码错误或已过期，请刷新后重试",
+  "admin.credentials_invalid": "账号或密码错误",
+  "admin.account_disabled": "账号或密码错误",
+  "admin.account_exists": "账号已存在",
+  "admin.account_not_found": "管理员不存在",
+  "admin.username_invalid": "账号须为 4-20 位字母、数字或下划线",
+  "admin.password_invalid": "密码须为 8-32 位，且同时包含字母和数字",
+  "admin.auth_required": "请先登录",
+  "admin.role_required": "需要管理员权限",
+  "admin.super_required": "需要超级管理员权限",
+  "admin.self_undisable": "不能停用当前登录的账号",
+  "admin.self_undelete": "不能删除当前登录的账号",
+  "admin.last_super": "不能删除最后一个超级管理员",
+
+  "prompt.alias_invalid": "别名须为 1-50 位字母、数字、下划线或中划线",
+  "prompt.content_invalid": "提示词内容不能为空且不超过 4000 字符",
+  "prompt.alias_exists": "别名已存在",
+  "prompt.not_found": "提示词不存在",
+  "paging.out_of_range": "分页参数超出范围",
+  "ai.prompt_not_found": "提示词别名不存在或未启用",
 
   "openapi.schemas.problem_details.description": "操作失败时返回 RFC 9457 ProblemDetails。客户端只依赖 code 判断错误类型，不要解析 detail 文字。",
   "openapi.schemas.problem_details.properties.code": "错误码，格式 <域名>_<种类>_<编号>，如 AUTH_CONFLICT_001。客户端以此判断错误类型",

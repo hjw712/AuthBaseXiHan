@@ -1,4 +1,4 @@
-namespace AuthBaseXiHan.Sessions;
+namespace AuthBaseXiHan.Sessions.Captcha;
 
 /// <summary>
 /// 图形验证码生成器：输出 SVG（纯字符串拼装，无 System.Drawing 等原生依赖，AOT 安全）

@@ -1,7 +1,7 @@
 using XiHan.Framework.Caching.Abstractions.Caches;
 using XiHan.Framework.Caching.Abstractions.Stores;
 
-namespace AuthBaseXiHan.Sessions;
+namespace AuthBaseXiHan.Sessions.Captcha;
 
 /// <summary>
 /// 图形验证码存储：Redis 轨（登录双因素之一）
