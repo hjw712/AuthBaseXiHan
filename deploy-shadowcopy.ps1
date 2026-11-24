@@ -105,7 +105,7 @@ if (-not $AppPoolName) {
   $AppPoolName = Get-AppPoolForPath $PublishDir
 }
 if (-not $AppPoolName) {
-  $AppPoolName = "AuthBaseXiHan"
+  $AppPoolName = "DefaultAppPool"
   Write-Warning "Could not detect app pool from IIS. Using default '$AppPoolName'. Re-run with -AppPoolName <name> if your pool differs."
 }
 Write-Host "[2/4] App pool: $AppPoolName"
