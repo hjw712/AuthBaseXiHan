@@ -11,6 +11,10 @@ using XiHan.Framework.Security.Abstractions;
 
 namespace AuthBaseXiHan.Operations;
 
+// 契约 record 的 XML 注释会被 Kernel.Generators 折进 OpenAPI Schema 的 description，展示在接口文档里
+// 每个操作连同它的请求/响应契约就近放在同一个 #region 里
+
+#region 注册
 /// <summary>
 /// 注册操作：契约 ID auth.register → HTTP 适配器自动映射 POST /auth:register
 /// </summary>
@@ -68,6 +72,17 @@ public sealed class RegisterOperation(AuthDbContext db, IRepository<User, long> 
     }
 }
 
+/// <summary>注册请求</summary>
+/// <param name="UserName">账号：4-20 位字母、数字或下划线</param>
+/// <param name="Password">密码：8-32 位，须同时包含字母和数字</param>
+public sealed record RegisterRequest(string UserName, string Password);
+
+/// <summary>注册响应</summary>
+/// <param name="UserId">新用户的数据库 ID</param>
+public sealed record RegisterResponse(long UserId);
+#endregion
+
+#region 图形验证码
 /// <summary>
 /// 图形验证码操作：登录前的第一道人机校验，SVG 以 data URI 返回（前端可直接 &lt;img src&gt;）。
 /// 契约 ID auth.captcha → GET /auth:captcha（whoami 同款非标准动词，ReadOnly 标记只读可重复调用）
@@ -85,6 +100,17 @@ public sealed class CaptchaOperation(CaptchaStore captchas) : IOperation<Captcha
     }
 }
 
+/// <summary>验证码请求（空载荷）</summary>
+public sealed record CaptchaRequest;
+
+/// <summary>验证码响应</summary>
+/// <param name="CaptchaId">验证码 ID，登录时随 captchaCode 一起提交</param>
+/// <param name="Image">SVG 图像的 data URI，前端可直接作为 &lt;img src&gt; 展示</param>
+/// <param name="ExpiresIn">有效期秒数（2 分钟），过期或尝试一次后作废</param>
+public sealed record CaptchaResponse(string CaptchaId, string Image, int ExpiresIn);
+#endregion
+
+#region 登录
 /// <summary>
 /// 登录操作：契约 ID auth.login → HTTP 适配器自动映射 POST /auth:login。
 /// 双轨会话：签发 JWT（验签轨）的同时把 jti 会话写进 Redis（吊销轨）。
@@ -134,6 +160,21 @@ public sealed class LoginOperation(AuthDbContext db, JwtTokenIssuer tokens, Sess
     }
 }
 
+/// <summary>登录请求</summary>
+/// <param name="CaptchaId">图形验证码 ID（GET /auth:captcha 返回）</param>
+/// <param name="CaptchaCode">用户输入的验证码字符（忽略大小写），一次有效</param>
+/// <param name="UserName">账号</param>
+/// <param name="Password">密码（明文，HTTPS 传输）</param>
+public sealed record LoginRequest(string CaptchaId, string CaptchaCode, string UserName, string Password);
+
+/// <summary>登录响应</summary>
+/// <param name="Token">会话令牌，有效期 7 天</param>
+/// <param name="ExpiresIn">有效期秒数</param>
+public sealed record LoginResponse(string Token, int ExpiresIn);
+#endregion
+
+#region whoami
+// 请求/响应契约 WhoAmIRequest / WhoAmIResponse 定义在 JwtTokenIssuer.cs（签发器同用），不在本文件
 /// <summary>
 /// whoami 操作：受保护接口示例，Policy=authenticated 要求登录（JWT 校验生效才有主体）。
 /// 契约 ID auth.whoami → GET /auth:whoami（whoami 非标准动词，ReadOnly 标记只读可重复调用）
@@ -155,7 +196,9 @@ public sealed class WhoAmIOperation : IOperation<WhoAmIRequest, WhoAmIResponse>
             principal.DisplayName)));
     }
 }
+#endregion
 
+#region 登出
 /// <summary>
 /// 登出操作：吊销当前令牌的会话（双轨的吊销轨），令牌本身验签仍通过但门禁查不到会话即失效。
 /// 契约 ID auth.logout → POST /auth:logout（请求体传 {}）
@@ -182,6 +225,15 @@ public sealed class LogoutOperation(SessionStore sessions) : IOperation<LogoutRe
     }
 }
 
+/// <summary>登出请求（空载荷，令牌从 Authorization 头取）</summary>
+public sealed record LogoutRequest;
+
+/// <summary>登出响应</summary>
+/// <param name="Revoked">会话是否已吊销（当前令牌此后立即失效）</param>
+public sealed record LogoutResponse(bool Revoked);
+#endregion
+
+#region 强制下线
 /// <summary>
 /// 强制下线操作：吊销当前账号在所有设备的会话（改密码 / 疑似被盗时用）。
 /// 契约 ID auth.logout-all → POST /auth:logout-all（请求体传 {}，含发起本次调用的设备）
@@ -206,49 +258,10 @@ public sealed class LogoutAllOperation(SessionStore sessions) : IOperation<Logou
     }
 }
 
-// ========== 请求/响应契约（record，CamelCase 序列化） ==========
-// XML 注释会被 Kernel.Generators 折进 OpenAPI Schema 的 description，展示在接口文档里
-
-/// <summary>验证码请求（空载荷）</summary>
-public sealed record CaptchaRequest;
-
-/// <summary>验证码响应</summary>
-/// <param name="CaptchaId">验证码 ID，登录时随 captchaCode 一起提交</param>
-/// <param name="Image">SVG 图像的 data URI，前端可直接作为 &lt;img src&gt; 展示</param>
-/// <param name="ExpiresIn">有效期秒数（2 分钟），过期或尝试一次后作废</param>
-public sealed record CaptchaResponse(string CaptchaId, string Image, int ExpiresIn);
-
-/// <summary>注册请求</summary>
-/// <param name="UserName">账号：4-20 位字母、数字或下划线</param>
-/// <param name="Password">密码：8-32 位，须同时包含字母和数字</param>
-public sealed record RegisterRequest(string UserName, string Password);
-
-/// <summary>注册响应</summary>
-/// <param name="UserId">新用户的数据库 ID</param>
-public sealed record RegisterResponse(long UserId);
-
-/// <summary>登录请求</summary>
-/// <param name="CaptchaId">图形验证码 ID（GET /auth:captcha 返回）</param>
-/// <param name="CaptchaCode">用户输入的验证码字符（忽略大小写），一次有效</param>
-/// <param name="UserName">账号</param>
-/// <param name="Password">密码（明文，HTTPS 传输）</param>
-public sealed record LoginRequest(string CaptchaId, string CaptchaCode, string UserName, string Password);
-
-/// <summary>登录响应</summary>
-/// <param name="Token">会话令牌，有效期 7 天</param>
-/// <param name="ExpiresIn">有效期秒数</param>
-public sealed record LoginResponse(string Token, int ExpiresIn);
-
-/// <summary>登出请求（空载荷，令牌从 Authorization 头取）</summary>
-public sealed record LogoutRequest;
-
-/// <summary>登出响应</summary>
-/// <param name="Revoked">会话是否已吊销（当前令牌此后立即失效）</param>
-public sealed record LogoutResponse(bool Revoked);
-
 /// <summary>强制下线请求（空载荷，吊销当前账号的全部会话）</summary>
 public sealed record LogoutAllRequest;
 
 /// <summary>强制下线响应</summary>
 /// <param name="Revoked">吊销的会话数（含发起本次调用的设备）</param>
 public sealed record LogoutAllResponse(int Revoked);
+#endregion
