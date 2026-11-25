@@ -60,7 +60,78 @@ public static class DbInitializer
                     "ALTER TABLE [" + safeTable + "] ADD [" + safeColumn + "] " + type + " NULL;", cancellationToken);
 #pragma warning restore EF1003
             }
+
+            // 索引同理：EnsureCreated 不管已存在的表，模型里新增的索引要在这里补
+            await EnsureIndexesAsync(db, entity, tableName, cancellationToken);
         }
+    }
+
+    /// <summary>
+    /// 补齐模型里声明而数据库缺少的索引（唯一与非唯一都补）。
+    /// </summary>
+    /// <remarks>
+    /// 为什么不能只依赖建表时的索引：本类对「已存在的表」不会重建，
+    /// 后来在模型上加的索引（例如给新查询路径补的普通索引）就永远建不上，
+    /// 表现为功能正常但查询悄悄退化成全表扫描——这种问题很难在使用中被发现。
+    /// </remarks>
+    private static async Task EnsureIndexesAsync(
+        AuthDbContext db, IEntityType entity, string tableName, CancellationToken cancellationToken)
+    {
+        var declared = entity.GetIndexes()
+            .Select(index => (Index: index, Name: index.GetDatabaseName()))
+            .Where(pair => !string.IsNullOrWhiteSpace(pair.Name))
+            .ToList();
+        if (declared.Count == 0) return;
+
+        var existingNames = await QueryExistingIndexNamesAsync(db, tableName, cancellationToken);
+
+        var safeTable = tableName.Replace("]", "]]");
+        foreach (var (index, name) in declared)
+        {
+            if (existingNames.Contains(name!)) continue;
+
+            var columns = index.Properties
+                .Select(p => p.GetColumnName())
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => "[" + n.Replace("]", "]]") + "]")
+                .ToArray();
+            if (columns.Length == 0) continue;
+
+            var unique = index.IsUnique ? "UNIQUE " : string.Empty;
+            var safeName = name!.Replace("]", "]]");
+            // 用拼接而不是内插：EF1002 对内插字符串一律告警，而这里的标识符全部来自 EF 模型元数据
+            // （非用户输入）且已做 ] → ]] 转义，无法参数化（DDL 不支持参数化标识符）
+            var sql = "CREATE " + unique + "INDEX [" + safeName + "] ON [" + safeTable + "] ("
+                      + string.Join(", ", columns) + ");";
+#pragma warning disable EF1003
+            await db.Database.ExecuteSqlRawAsync(sql, cancellationToken);
+#pragma warning restore EF1003
+        }
+    }
+
+    private static async Task<HashSet<string>> QueryExistingIndexNamesAsync(
+        AuthDbContext db, string tableName, CancellationToken ct)
+    {
+        var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var sql = $"SELECT i.name FROM sys.indexes i WHERE i.object_id = OBJECT_ID('{tableName.Replace("'", "''")}') AND i.name IS NOT NULL";
+        var connection = db.Database.GetDbConnection();
+        await connection.OpenAsync(ct);
+        try
+        {
+            using var cmd = connection.CreateCommand();
+            cmd.CommandText = sql;
+            using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                names.Add(reader.GetString(0));
+            }
+        }
+        finally
+        {
+            await connection.CloseAsync();
+        }
+
+        return names;
     }
 
     private static async Task<HashSet<string>> QueryExistingTablesAsync(AuthDbContext db, CancellationToken ct)
@@ -147,17 +218,19 @@ public static class DbInitializer
         var pkClause = pkNames.Length > 0 ? $", CONSTRAINT [PK_{tableName}] PRIMARY KEY ({string.Join(", ", pkNames)})" : string.Empty;
         statements.Add($"CREATE TABLE [{tableName}] (\n  {string.Join(",\n  ", columns)}{pkClause}\n);");
 
-        // 唯一索引
-        foreach (var index in entity.GetIndexes().Where(i => i.IsUnique))
+        // 唯一索引与非唯一索引都建：缺了非唯一索引查询会退化成全表扫描
+        foreach (var index in entity.GetIndexes())
         {
             var indexName = index.GetDatabaseName();
+            if (string.IsNullOrWhiteSpace(indexName)) continue;
             var indexColumns = index.Properties
                 .Select(p => p.GetColumnName())
                 .Where(n => !string.IsNullOrWhiteSpace(n))
                 .Select(n => $"[{n}]")
                 .ToArray();
             if (indexColumns.Length == 0) continue;
-            statements.Add($"CREATE UNIQUE INDEX [{indexName}] ON [{tableName}] ({string.Join(", ", indexColumns)});");
+            var unique = index.IsUnique ? "UNIQUE " : string.Empty;
+            statements.Add($"CREATE {unique}INDEX [{indexName}] ON [{tableName}] ({string.Join(", ", indexColumns)});");
         }
 
         return string.Join("\n", statements);

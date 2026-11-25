@@ -32,8 +32,20 @@ public sealed class AiFeature : IFeature
 
     public void Configure(FeatureContext context)
     {
-        // 动态客户端工厂：配置从数据库读、Key 加密解密、结果缓存进程内存
-        context.Services.AddSingleton<IChatClientFactory, ChatClientFactory>();
+        // Key 加解密与掩码：全应用唯一处理明文 Key 的地方
+        context.Services.AddSingleton<LlmKeyProtector>();
+
+        // 数据库驱动的模型目录（框架 IAIProviderCatalog 的实现）：
+        // 决定「用哪些 Provider、凭据是什么」，真正建 IChatClient 交给框架的 Kind 工厂。
+        // 注意：作为 IAIProviderCatalog 的注册放在 Program.cs 里 AddXiHan 之后，
+        // 以免被框架 AI 特性登记默认（配置驱动）目录覆盖。
+        context.Services.AddSingleton<DbAIProviderCatalog>();
+
+        // 每用户配额：进程内计数，必须单例（状态就是计数桶本身）
+        context.Services.AddSingleton<AiUserRateLimiter>();
+
+        // 调用日志写入器：自己开作用域提交，与操作的工作单元成败解耦，故为单例
+        context.Services.AddSingleton<AiCallLogger>();
 
         // 模型管理策略：容器注册后 PolicyCatalog 按 Name 自动发现
         context.Services.AddSingleton<IPolicy, LlmAdminPolicy>();

@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using AuthBaseXiHan.Operations;
+using AuthBaseXiHan.Sessions.Common;
 
 namespace AuthBaseXiHan;
 
@@ -27,9 +28,12 @@ namespace AuthBaseXiHan;
 [JsonSerializable(typeof(SessionLogoutAllResponse))]
 [JsonSerializable(typeof(string[]))]
 
-// AI 模块：对话 + 模型配置管理
+// AI 模块：对话 + 可用模型清单 + 用量统计 + 模型配置管理
 [JsonSerializable(typeof(AiChatRequest))]
 [JsonSerializable(typeof(AiChatResponse))]
+[JsonSerializable(typeof(SessionPagedResponse<AiModelItem>))]
+[JsonSerializable(typeof(AiUsageRequest))]
+[JsonSerializable(typeof(AiUsageResponse))]
 [JsonSerializable(typeof(SessionPagedResponse<LlmConfigItem>))]
 [JsonSerializable(typeof(LlmConfigUpsertRequest))]
 [JsonSerializable(typeof(LlmConfigUpsertResponse))]

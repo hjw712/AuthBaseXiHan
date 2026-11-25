@@ -23,6 +23,9 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
     /// <summary>提示词表（与模型配置解耦，对话按 promptAlias 引用）</summary>
     public DbSet<PromptConfig> Prompts => Set<PromptConfig>();
 
+    /// <summary>模型调用日志（token 计费与用量统计的数据源）</summary>
+    public DbSet<AiCallLog> AiCallLogs => Set<AiCallLog>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<User>(entity =>
@@ -71,6 +74,22 @@ public sealed class AuthDbContext(DbContextOptions<AuthDbContext> options) : DbC
             entity.Property(p => p.Content).HasMaxLength(4000).IsRequired();
             entity.Property(p => p.CreatedAt).IsRequired();
             entity.Property(p => p.UpdatedAt).IsRequired();
+        });
+
+        // 调用日志：写入频繁、只查不改，列长按实际内容设上限；
+        // 正文列可空且限长，Ai:LogContent 关闭时恒为 NULL
+        modelBuilder.Entity<AiCallLog>(entity =>
+        {
+            entity.ToTable("AiCallLogs");
+            entity.HasKey(l => l.Id);
+            entity.Property(l => l.TenantId).HasMaxLength(64).IsRequired();
+            entity.Property(l => l.UserId).HasMaxLength(64).IsRequired();
+            entity.Property(l => l.Alias).HasMaxLength(50).IsRequired();
+            entity.Property(l => l.PromptAlias).HasMaxLength(50);
+            entity.Property(l => l.ErrorCode).HasMaxLength(50);
+            entity.Property(l => l.Question).HasMaxLength(500);
+            entity.Property(l => l.Answer).HasMaxLength(2000);
+            entity.Property(l => l.CreatedAt).IsRequired();
         });
 
         // 框架约定：[EntityIndex] → HasIndex、软删除唯一索引过滤条件、并发戳等

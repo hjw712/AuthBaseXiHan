@@ -7,7 +7,7 @@ namespace AuthBaseXiHan;
 /// JSON 响应中文直出中间件：把响应体里的 \uXXXX 转义还原为 UTF-8 明文
 /// </summary>
 /// <remarks>
-/// 背景：XiHan rc.6 写 JSON（ProblemDetails 用 Utf8JsonWriter、操作响应用源生成上下文）
+/// 背景：XiHan 框架（rc.6 起，rc.7 仍如此）写 JSON（ProblemDetails 用 Utf8JsonWriter、操作响应用源生成上下文）
 /// 都走默认 Encoder，非 ASCII 字符一律转义成 \uXXXX——这是合法 JSON，客户端 JSON.parse
 /// 后内容完全正确，只是调试视图（Scalar、curl）里不可读；框架未暴露 Encoder 配置口，
 /// 故在响应边缘统一做一次「JSON 解析 + 宽松编码器重写」。

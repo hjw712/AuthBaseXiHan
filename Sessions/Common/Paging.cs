@@ -2,7 +2,7 @@ using Microsoft.Extensions.Options;
 using XiHan.Framework.Kernel.Operations;
 using XiHan.Framework.Primitives;
 
-namespace AuthBaseXiHan.Operations;
+namespace AuthBaseXiHan.Sessions.Common;
 
 // 通用分页基础设施：所有列表接口共用的分页查询契约、参数校验与响应封装。
 // 三要素：Page（页码）/ PageSize（每页条数）/ Query（关键字筛选，各列表自己决定匹配哪个字段）。

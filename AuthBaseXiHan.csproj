@@ -4,7 +4,7 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <!-- OpenAPI 文档的字段说明来自 DTO 的 XML 注释（Kernel.Generators 折进 Schema description） -->
+    <!-- OpenAPI 文档的字段说明来�?DTO �?XML 注释（Kernel.Generators 折进 Schema description�?-->
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <NoWarn>$(NoWarn);CS1591</NoWarn>
     <UserSecretsId>cbe200ad-efc8-4972-87ba-e74dbe45ef42</UserSecretsId>
@@ -22,19 +22,21 @@
     <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="11.0.1" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />
-    <PackageReference Include="XiHan.Framework.Caching.Redis" Version="5.0.0-rc.6" />
-    <PackageReference Include="XiHan.Framework.Kernel.Generators" Version="5.0.0-rc.6">
+    <PackageReference Include="XiHan.Framework.AI.Abstractions" Version="5.0.0-rc.7" />
+    <PackageReference Include="XiHan.Framework.AI.OpenAI" Version="5.0.0-rc.7" />
+    <PackageReference Include="XiHan.Framework.Caching.Redis" Version="5.0.0-rc.7" />
+    <PackageReference Include="XiHan.Framework.Kernel.Generators" Version="5.0.0-rc.7">
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
       <PrivateAssets>all</PrivateAssets>
     </PackageReference>
-    <PackageReference Include="XiHan.Framework.Persistence.EntityFrameworkCore" Version="5.0.0-rc.6" />
-    <PackageReference Include="XiHan.Framework.Profiles.Minimal" Version="5.0.0-rc.6" />
-    <PackageReference Include="XiHan.Framework.Protocols.Http" Version="5.0.0-rc.6" />
-    <PackageReference Include="XiHan.Framework.Security.InMemory" Version="5.0.0-rc.6" />
-    <PackageReference Include="XiHan.Framework.Security.Jwt" Version="5.0.0-rc.6" />
+    <PackageReference Include="XiHan.Framework.Persistence.EntityFrameworkCore" Version="5.0.0-rc.7" />
+    <PackageReference Include="XiHan.Framework.Profiles.Minimal" Version="5.0.0-rc.7" />
+    <PackageReference Include="XiHan.Framework.Protocols.Http" Version="5.0.0-rc.7" />
+    <PackageReference Include="XiHan.Framework.Security.InMemory" Version="5.0.0-rc.7" />
+    <PackageReference Include="XiHan.Framework.Security.Jwt" Version="5.0.0-rc.7" />
   </ItemGroup>
 
-  <!-- 消息目录：接口文档 summary/description 与错误文案的翻译来源 -->
+  <!-- 消息目录：接口文�?summary/description 与错误文案的翻译来源 -->
   <ItemGroup>
     <EmbeddedResource Include="Localization/*.json" LogicalName="Localization/%(Filename)%(Extension)" />
   </ItemGroup>

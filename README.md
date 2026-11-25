@@ -1,6 +1,6 @@
 # AuthBaseXiHan —— XiHan.Framework 版通用基座
 
-> 基于 [XiHan.Framework](https://github.com/XiHanFun/XiHan.Framework) 5.0.0-rc.6 的注册/登录基座。
+> 基于 [XiHan.Framework](https://github.com/XiHanFun/XiHan.Framework) 5.0.0-rc.7 的注册/登录基座。
 > 旧版原生 ASP.NET Core 实现在 `../src/`（保留作对照，功能相同）。
 
 ## 项目结构（对照官方 Quickstart）
@@ -26,6 +26,79 @@ src-xihan/AuthBaseXiHan/
 
 无需手写 Controller 和路由——操作契约 `[Operation("auth.register")]` 由源生成器自动登记，
 HTTP 协议适配器自动映射路由（**资源与动词用冒号分隔**：`POST /auth:register`、`POST /auth:login`）。
+
+## AI 模块：框架 AI 子系统 + 数据库凭据
+
+对话链路由框架 `XiHan.Framework.AI`（`OpenAIFeature` + `IAIChat`）负责，本项目只提供**凭据来源**与**业务接口**。
+
+```
+Sessions/Ai/
+├── DbAIProviderCatalog.cs   # 实现框架 IAIProviderCatalog：内存快照的 Provider 目录，数据来自数据库
+├── LlmKeyProtector.cs       # API Key 的 Data Protection 加解密封装（全应用唯一处理明文处）
+├── AiChatOptions.cs         # Ai 配置节：超时、每用户配额、是否记录正文
+├── AiUserRateLimiter.cs     # 每用户分钟/日配额（进程内计数）
+├── AiCallLogger.cs          # 调用日志写入（独立作用域，失败/超时不丢记录）
+├── LlmProviderConfig.cs     # 模型凭据实体（TenantId + Alias 唯一，ApiKeyEncrypted）
+└── TenantExtensions.cs      # 当前租户（暂固定 default）
+Operations/AiOperations.cs   # ai.chat / ai.models / ai.usage
+Operations/LlmConfigOperations.cs  # llm.configs / llm.upsertconfig / llm.testconfig / llm.deleteconfig
+Operations/PromptOperations.cs     # prompt.*（提示词与模型解耦，改完立即生效）
+```
+
+**为什么不是直接用框架默认目录**：框架的 `AIProviderCatalog` 从 `XiHan:AI:Providers` 配置节读凭据，
+启动时读一次就固定、Key 只能明文写在配置文件里。本项目要「多租户 + Key 加密入库 + 改配置立即生效」，
+所以按框架文档给出的替换场景自己实现 `IAIProviderCatalog`，在 `AddXiHan` **之后**登记覆盖
+（同一服务类型后登记的胜出，放前面会被框架顶掉）。
+
+**自己保留的能力**（框架没有）：每租户独立凭据、Key 加密存储、运行期通过 `llm:upsertconfig` 改配置立即生效、
+提示词存数据库；**白拿的能力**（框架提供）：Provider 客户端构造、超时按令牌归因、上游异常翻译、提示注入护栏。
+
+### 三个必须知道的约束
+
+1. **Provider 名文法**：框架要求 `^[a-z0-9][a-z0-9._-]{0,63}$`，不允许 `/`、不允许多余大写，
+   而本项目的租户与别名更宽松（别名允许大写与下划线）。故 `DbAIProviderCatalog` **生成**合规名
+   （`租户.别名` 转小写、非法字符转 `_`），并维护 `(租户,别名) → 名字` 映射表，冲突时追加 `-2` 消歧。
+2. **同步契约**：`IAIProviderCatalog` 的方法都是同步的、不能查库 → 目录持内存快照。
+   启动时全量加载；`llm.upsertconfig` / `deleteconfig` **直接改内存**（不重新加载——框架的工作单元
+   在操作返回后才提交，此刻查库读到的是旧行）；直接改数据库或多实例场景靠 10 分钟快照有效期收敛。
+3. **`.WithText()` 只是兜底**：有 `messageKey` 且语言文件里有对应条目时，**以语言文件为准**。
+   要往文案里塞动态值（如别名），必须用 `MessageArguments.Of(("alias", alias))` 并在语言文件写 `{alias}`。
+
+### 错误码（沿用框架 AI 模块语义，不自造）
+
+| 码 | HTTP | 场景 |
+|---|---|---|
+| `AI_VALIDATION_001` / `002` / `003` | 400 | 问题为空或超长 / 提示词不存在 / 统计天数越界 |
+| `AI_NOTFOUND_001` | 404 | 模型配置不存在或未启用 |
+| `AI_DENIED_001` | 403 | 被护栏拦截（`details` 带 `guardrail`、`reason`） |
+| `AI_UNAVAILABLE_001` | 503 | 模型端点不可达或返回错误 |
+| `AI_UNAVAILABLE_002` | 503 | 配置损坏（Key 解不开等） |
+| `AI_UNAVAILABLE_003` | 503 | **触发每用户配额**（本项目加的唯一码，`details` 带 `scope`、`retryAfter`） |
+| `AI_TIMEOUT_001` | 504 | 模型超时（上游可能已产生副作用，重试前请确认） |
+
+### 两层限流
+
+| 层 | 实现 | 粒度 | 配置 |
+|---|---|---|---|
+| 全局兜底 | 框架 `ResilienceMiddleware`（零代码） | 按操作 ID，进程内 | `XiHan:Kernel:Resilience:Operations:ai.chat` |
+| 业务配额 | `AiUserRateLimiter` | 按用户：分钟桶 + 自然日桶 | `Ai:UserMinuteLimit` / `Ai:UserDailyLimit` |
+
+两层都是**进程内**计数，多副本部署时实际额度 = 单实例 × 副本数。每用户限流只能放在操作内部——
+管道 `Resilience` 阶段排在 `Authenticate` **之前**，那时拿不到主体。被限流的请求不写调用日志（避免刷量放大写入）。
+
+### 相关配置
+
+```jsonc
+"Ai": {
+  "TimeoutSeconds": 60,      // 单次调用超时（同时作为 Provider 的 Timeout，归因由框架做）
+  "UserMinuteLimit": 20,     // 每用户每分钟上限，0/负数 = 不限
+  "UserDailyLimit": 1000,    // 每用户每自然日（UTC）上限
+  "LogContent": false        // 是否把问题/回答正文写进 AiCallLogs（默认关，正文属用户内容）
+},
+"XiHan": {
+  "AI": { "Guardrails": { "Enabled": true, "BlockedKeywords": [] } }  // 内置提示注入护栏
+}
+```
 
 ## 运行
 
@@ -65,7 +138,7 @@ dotnet run --urls http://localhost:5300
 
 ### 错误返回的文档说明
 
-接口文档里 `default` 响应（ProblemDetails）的**字段级说明暂不可配置**：rc.6 的 `WriteProblemDetails` 是硬编码写出的，不走 `openapi.schemas.*` 消息目录覆盖（覆盖只对操作契约自己的 Schema 生效，`Localization` 里已预留 problem_details 的覆盖键，上游修复后自动生效）。
+接口文档里 `default` 响应（ProblemDetails）的**字段级说明暂不可配置**：框架（rc.6 起，rc.7 仍如此）的 `WriteProblemDetails` 是硬编码写出的，不走 `openapi.schemas.*` 消息目录覆盖（覆盖只对操作契约自己的 Schema 生效，`Localization` 里已预留 problem_details 的覆盖键，上游修复后自动生效）。
 
 当前做法：把错误契约写进每个操作的 `description`（消息目录的 `<操作ID>.description`），Scalar 接口页展开即可看到——包含 ProblemDetails 各字段含义（code/status/title/detail/errors/details/traceId/instance）与该操作可能返回的错误码清单（如 `AUTH_CONFLICT_001` 409）。新增操作时按同样格式补文案。
 
@@ -305,7 +378,7 @@ curl https://localhost:44359/health/live
 8. **Redis 键要过 `CacheKey` 校验**：非空、不含空白与控制字符、不超长，`new CacheKey("...")` 不合法直接抛 `ArgumentException`
 9. **Redis 特性只提供 `caching.distributed`**：进程内 `ICache`（caching.local）仍由 Caching.InMemory/Hybrid 提供，本基座没装，业务只用 `ISharedCache`
 10. 源生成器排查方法：csproj 加 `EmitCompilerGeneratedFiles` 落盘查看，记得 `DefaultItemExcludes` 排除产物目录避免二次编译
-11. **JSON 响应里的中文显示为 `\uXXXX` 转义**：框架写 JSON（ProblemDetails 的 `Utf8JsonWriter`、操作响应的源生成上下文）都用默认 Encoder，非 ASCII 一律转义——这是合法 JSON（客户端 `JSON.parse` 后内容正确），只是 Scalar/curl 等原始视图不可读，rc.6 未暴露 Encoder 配置口。解法见 `ReadableJsonMiddleware`：在响应边缘把 JSON 解析后用 `JavaScriptEncoder.UnsafeRelaxedJsonEscaping` 重写直出中文。实现有两个关键点：①框架用 `Response.HasStarted` 判定端点是否已写过响应（成功只写一次、失败才写 ProblemDetails），缓冲流会让它恒为 false、成功响应被写两遍，故首写时直接 flush 原始流发送响应头（`HttpResponse.StartAsync` 内部也是靠 flush 触发的，换成缓冲流后走不到 Kestrel）；②显式 Content-Length 是按转义字节数算的，重写后长度变化，先清掉改用分块
+11. **JSON 响应里的中文显示为 `\uXXXX` 转义**：框架写 JSON（ProblemDetails 的 `Utf8JsonWriter`、操作响应的源生成上下文）都用默认 Encoder，非 ASCII 一律转义——这是合法 JSON（客户端 `JSON.parse` 后内容正确），只是 Scalar/curl 等原始视图不可读，框架（rc.6 起，rc.7 仍如此）未暴露 Encoder 配置口。解法见 `ReadableJsonMiddleware`：在响应边缘把 JSON 解析后用 `JavaScriptEncoder.UnsafeRelaxedJsonEscaping` 重写直出中文。实现有两个关键点：①框架用 `Response.HasStarted` 判定端点是否已写过响应（成功只写一次、失败才写 ProblemDetails），缓冲流会让它恒为 false、成功响应被写两遍，故首写时直接 flush 原始流发送响应头（`HttpResponse.StartAsync` 内部也是靠 flush 触发的，换成缓冲流后走不到 Kestrel）；②显式 Content-Length 是按转义字节数算的，重写后长度变化，先清掉改用分块
 12. **操作 ID 文法是全小写 + 连字符**：`^[a-z][a-z0-9]*(-[a-z0-9]+)*\.[a-z][a-z0-9]*(-[a-z0-9]+)*$`（如 `common.logout-all`），驼峰（`logoutAll`）直接编译报 XHG003
 13. **消息目录键只允许小写字母/数字/下划线**（`^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$`），连字符不合法（启动抛 FrameworkException）；操作文档键由框架把操作 ID 的连字符转成下划线推导（`common.logout-all` → `common.logout_all.title`）
 14. **装饰框架认证处理器（会话门禁）**：内核 Authenticate 阶段按方案名取 DI 里「第一个」匹配的 `IAuthenticationHandler`，装饰器必须先于 `AddXiHan` 登记；内层处理器按具体类型（`JwtAuthenticationHandler`）显式注册后注入，不能注入 `IEnumerable<IAuthenticationHandler>`（包含自身，循环依赖）
@@ -315,13 +388,14 @@ curl https://localhost:44359/health/live
 18. **IIS 500.30 启动失败且堆栈是 `RedisConnectionException` → 连接串加 `abortConnect=false`（但仅此不够）**：StackExchange.Redis 默认首次连接失败即抛异常；加 `abortConnect=false` 后 Connect 阶段不抛了，但框架 `RedisCachingFeature.StartAsync` 仍显式检查连接状态，Redis 真离线照样抛 `Redis is not connected` 崩溃。**结论：Redis 必须先于应用启动，`abortConnect=false` 只是韧性补充**。IIS 更隐蔽：拉起时 Redis 未就绪就失败并卡快速失败状态，Redis 起来也不自愈，须回收应用池（非管理员可改 web.config 内容触发自动回收）。本机 Redis 是手动进程（Cygwin 版须 `cd D:/Redis-8.10.3 && ./redis-server.exe redis.conf`，绝对路径会被误解析），建议用 `RedisService.exe` 注册成服务开机自启
 19. **卷影复制 + 环境变量注入的启动排障链**：`web.config` 用 `<environmentVariables><environmentVariable name="ASPNETCORE_ENVIRONMENT" value="Development" /></environmentVariables>` 注入环境（本机真实配置在 `appsettings.Development.json`，Production 读占位符会连不上 SQL）；改 `web.config` 会触发 ANCM 重建卷影目录（`cleanShadowCopyDirectory=true` 清旧建新，子目录序号从 `0` 递增到 `1`）——所以「站点 200 但卷影目录文件数暂时为 0」是正常的重建中间态，等十几秒即可
 
-## 已知问题（框架 rc.6）
+## 已知问题（框架 rc.7）
 
 - `/health/ready` 的 `status` 是 `pass`（HTTP 200），但 `state` 会一直显示 `Degraded`：
   启动时健康条目完成 `Started → Ready` 后，特性的状态仍按旧值置为 `Degraded`，且之后不再重新计算。
   `/health/details` 里条目 `persistence.entityframeworkcore.database` 与 `caching.redis.connection` 实际都是 `Ready`，
   只有 `xihan.persistence.entityframeworkcore` 这一个特性显示 `Degraded`。
-  这是 rc.6 的状态聚合时序问题，不影响读写与探针判定（探针看 HTTP 状态码），等上游修复。
+  这是框架的状态聚合时序问题（rc.6 已存在，rc.7 未修复），不影响读写与探针判定
+  （探针看 HTTP 状态码），等上游修复。
 
 ## 当前状态与后续
 

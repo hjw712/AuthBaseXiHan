@@ -1,12 +1,16 @@
 using System.Text.RegularExpressions;
-using AuthBaseXiHan.Sessions.Ai;
 using AuthBaseXiHan.Persistence;
+using AuthBaseXiHan.Sessions.Ai;
+using AuthBaseXiHan.Sessions.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.AI;
 using Microsoft.Extensions.Options;
+using XiHan.Framework.AI.Abstractions.Chat;
 using XiHan.Framework.Kernel.Operations;
 using XiHan.Framework.Kernel.Security;
 using XiHan.Framework.Primitives;
+// 框架的对话请求类型与本项目的 AiChatRequest 只差大小写，用别名避免读错
+using FrameworkChatRequest = XiHan.Framework.AI.Abstractions.Chat.AIChatRequest;
 
 namespace AuthBaseXiHan.Operations;
 
@@ -90,7 +94,8 @@ public sealed record LlmConfigItem(long ConfigId, string Alias, string Provider,
 /// </summary>
 [Operation(LlmConfigUpsertOperation.Id, Expose = Expose.Http,
     Stability = Stability.Experimental, Policy = LlmAdminPolicy.PolicyName)]
-public sealed class LlmConfigUpsertOperation(AuthDbContext db, IChatClientFactory factory)
+public sealed class LlmConfigUpsertOperation(
+    AuthDbContext db, LlmKeyProtector protector, DbAIProviderCatalog catalog)
     : IOperation<LlmConfigUpsertRequest, LlmConfigUpsertResponse>
 {
     public const string Id = "llm.upsertconfig";
@@ -107,10 +112,10 @@ public sealed class LlmConfigUpsertOperation(AuthDbContext db, IChatClientFactor
                 .WithText("别名须为 1-50 位字母、数字、下划线或中划线"));
         }
         if (!Uri.TryCreate(request.Endpoint, UriKind.Absolute, out var uri) ||
-            (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && uri.IsLoopback)))
+            (uri.Scheme != Uri.UriSchemeHttps && !(uri.Scheme == Uri.UriSchemeHttp && IsPrivateHost(uri))))
         {
             return Result.Failure<LlmConfigUpsertResponse>(Error.Validation("LLM_VALIDATION_002", "llm.endpoint_invalid")
-                .WithText("接口地址须为 HTTPS（本机开发允许 http://localhost）"));
+                .WithText("接口地址须为 HTTPS（本机或内网私有地址允许 http://）"));
         }
         if (string.IsNullOrWhiteSpace(request.Model))
         {
@@ -128,6 +133,7 @@ public sealed class LlmConfigUpsertOperation(AuthDbContext db, IChatClientFactor
             .FirstOrDefaultAsync(c => c.TenantId == tenantId && c.Alias == request.Alias, context.CancellationToken);
         var now = DateTimeOffset.UtcNow;
 
+        LlmProviderConfig entity;
         if (existing is null)
         {
             if (string.IsNullOrWhiteSpace(request.ApiKey))
@@ -136,19 +142,20 @@ public sealed class LlmConfigUpsertOperation(AuthDbContext db, IChatClientFactor
                     .WithText("新增配置时 API Key 不能为空"));
             }
 
-            db.LlmConfigs.Add(new LlmProviderConfig
+            entity = new LlmProviderConfig
             {
                 TenantId = tenantId,
                 Alias = request.Alias,
                 Provider = request.Provider,
                 Endpoint = request.Endpoint,
-                ApiKeyEncrypted = factory.ProtectApiKey(request.ApiKey),
+                ApiKeyEncrypted = protector.Protect(request.ApiKey),
                 Model = request.Model,
                 SystemPrompt = string.IsNullOrWhiteSpace(request.SystemPrompt) ? null : request.SystemPrompt,
                 IsActive = request.IsActive,
                 CreatedAt = now,
                 UpdatedAt = now,
-            });
+            };
+            db.LlmConfigs.Add(entity);
         }
         else
         {
@@ -165,14 +172,54 @@ public sealed class LlmConfigUpsertOperation(AuthDbContext db, IChatClientFactor
             // 不传 ApiKey 表示保留原值；显式传空串表示清空（后续调用会解密失败，符合预期）
             if (request.ApiKey is not null)
             {
-                existing.ApiKeyEncrypted = factory.ProtectApiKey(request.ApiKey);
+                existing.ApiKeyEncrypted = protector.Protect(request.ApiKey);
             }
+
+            entity = existing;
         }
 
-        // 写库由框架工作单元统一提交；这里先清缓存，避免旧客户端继续被使用
-        await factory.InvalidateAsync(request.Alias, tenantId, context.CancellationToken);
+        // 直接改内存目录，**不回查数据库**：写库由框架工作单元在本操作返回后才提交，
+        // 此刻查库读到的是旧行，会把刚写入的配置覆盖回旧值。
+        catalog.Apply(entity);
 
-        return Result.Success(new LlmConfigUpsertResponse(existing?.Id ?? 0, request.Alias, true));
+        return Result.Success(new LlmConfigUpsertResponse(entity.Id, request.Alias, true));
+    }
+
+    /// <summary>
+    /// 是否本机或内网私有地址：HTTP 明文只允许发往这些主机，公网必须用 HTTPS。
+    /// </summary>
+    /// <remarks>
+    /// 目的很具体：API Key 走明文 HTTP 时，链路上任何一跳都能看到它。
+    /// 本机回环与内网私有网段（RFC 1918 / 链路本地 / IPv6 ULA）里的流量不经过公网，
+    /// 复用同一套加密（TLS）收益很低，而自建模型网关、内网 vLLM/Ollama 这类部署几乎都是 http，
+    /// 一刀切要求 HTTPS 会把它们挡在录入接口之外，逼使用者绕过接口直接写库——那样反而更不安全。
+    ///
+    /// 判定按 IP 字面量做，不做 DNS 解析：解析结果随时可能变（DNS 重绑定），
+    /// 拿解析后的地址放行等于给「先指向内网、后指向公网」留下窗口。
+    /// 因此以主机名形式填写的内网地址仍须走 HTTPS——这是有意的保守取舍。
+    /// </remarks>
+    private static bool IsPrivateHost(Uri uri)
+    {
+        if (uri.IsLoopback) return true;
+
+        if (!System.Net.IPAddress.TryParse(uri.Host, out var ip)) return false;
+        if (System.Net.IPAddress.IsLoopback(ip)) return true;
+
+        var bytes = ip.GetAddressBytes();
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            return bytes[0] == 10                                   // 10.0.0.0/8
+                || (bytes[0] == 172 && bytes[1] is >= 16 and <= 31) // 172.16.0.0/12
+                || (bytes[0] == 192 && bytes[1] == 168)             // 192.168.0.0/16
+                || (bytes[0] == 169 && bytes[1] == 254);            // 169.254.0.0/16 链路本地
+        }
+
+        if (ip.AddressFamily == System.Net.Sockets.AddressFamily.InterNetworkV6)
+        {
+            return ip.IsIPv6LinkLocal || (bytes[0] & 0xFE) == 0xFC;  // fe80::/10 / fc00::/7 ULA
+        }
+
+        return false;
     }
 }
 
@@ -201,7 +248,8 @@ public sealed record LlmConfigUpsertResponse(long ConfigId, string Alias, bool U
 /// </summary>
 [Operation(LlmConfigTestOperation.Id, Expose = Expose.Http,
     Stability = Stability.Experimental, Policy = LlmAdminPolicy.PolicyName)]
-public sealed class LlmConfigTestOperation(IChatClientFactory factory)
+public sealed class LlmConfigTestOperation(
+    AuthDbContext db, IAIChat aiChat, DbAIProviderCatalog catalog)
     : IOperation<LlmConfigTestRequest, LlmConfigTestResponse>
 {
     public const string Id = "llm.testconfig";
@@ -210,32 +258,29 @@ public sealed class LlmConfigTestOperation(IChatClientFactory factory)
         LlmConfigTestRequest request, InvocationContext context)
     {
         var tenantId = context.CurrentTenantId();
-        IChatClient client;
-        try
-        {
-            client = await factory.CreateAsync(request.Alias, tenantId, context.CancellationToken);
-        }
-        catch (Exception ex)
-        {
-            return Result.Failure<LlmConfigTestResponse>(Error.Validation("LLM_VALIDATION_005", "llm.test_failed")
-                .WithText($"配置加载失败：{ex.Message}"));
-        }
+        await catalog.EnsureLoadedAsync(db, context.CancellationToken);
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        try
+        var reply = await aiChat.CompleteAsync(new FrameworkChatRequest
         {
-            var reply = await client.GetResponseAsync("ping", cancellationToken: context.CancellationToken);
-            sw.Stop();
-            return Result.Success(new LlmConfigTestResponse(true, sw.ElapsedMilliseconds,
-                Truncate(reply.Text ?? string.Empty, 100), null));
-        }
-        catch (Exception ex)
+            Provider = catalog.ProviderName(tenantId, request.Alias),
+            Messages = [new ChatMessage(ChatRole.User, "ping")],
+        }, context.CancellationToken);
+
+        if (reply.IsFailure)
         {
             sw.Stop();
-            // 上游异常信息可能含敏感内容，只回类型与消息首行
-            var message = ex.Message.Split('\n')[0];
-            return Result.Success(new LlmConfigTestResponse(false, sw.ElapsedMilliseconds, null, message));
+            // 配置加载失败（没录入/Key 解不开）与上游失败都汇总成 Success=false + 错误码，
+            // 这个接口的用途就是「告诉我哪儿不对」，所以不把失败包装成 HTTP 错误
+            var error = reply.Error!;
+            return Result.Success(new LlmConfigTestResponse(false, sw.ElapsedMilliseconds, null,
+                $"{error.Code}: {error.Text ?? error.MessageKey}"));
         }
+
+        sw.Stop();
+        reply.TryGetValue(out var response);
+        return Result.Success(new LlmConfigTestResponse(true, sw.ElapsedMilliseconds,
+            Truncate(response?.Text ?? string.Empty, 100), null));
     }
 
     private static string Truncate(string text, int max) =>
@@ -260,7 +305,7 @@ public sealed record LlmConfigTestResponse(bool Success, long LatencyMs, string?
 /// </summary>
 [Operation(LlmConfigDeleteOperation.Id, Expose = Expose.Http,
     Stability = Stability.Experimental, Policy = LlmAdminPolicy.PolicyName)]
-public sealed class LlmConfigDeleteOperation(AuthDbContext db, IChatClientFactory factory)
+public sealed class LlmConfigDeleteOperation(AuthDbContext db, DbAIProviderCatalog catalog)
     : IOperation<LlmConfigDeleteRequest, LlmConfigDeleteResponse>
 {
     public const string Id = "llm.deleteconfig";
@@ -279,7 +324,8 @@ public sealed class LlmConfigDeleteOperation(AuthDbContext db, IChatClientFactor
         }
 
         db.LlmConfigs.Remove(entity);
-        await factory.InvalidateAsync(entity.Alias, tenantId, context.CancellationToken);
+        // 同步摘除内存目录：否则本进程会继续拿已删除的配置服务请求，直到快照过期
+        catalog.Remove(tenantId, entity.Alias);
         return Result.Success(new LlmConfigDeleteResponse(true));
     }
 }

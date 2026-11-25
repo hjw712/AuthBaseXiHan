@@ -50,11 +50,17 @@
   "openapi.tags.llm.name": "模型模块",
   "openapi.tags.llm.description": "模型凭据配置与连通性诊断（需 llm.admin 权限）",
 
-  "openapi.tags.prompt.name": "提示词管理",
+  "openapi.tags.prompt.name": "提示词模块",
   "openapi.tags.prompt.description": "提示词独立于模型配置：同一个模型可按调用参数换用不同提示词（需 llm.admin 权限）",
 
   "ai.chat.title": "模型对话（单轮问答）",
-  "ai.chat.description": "把问题发给数据库里配置的大模型，返回回答与 token 计量。别名不传时用 default 配置；提示词与模型解耦——请求传 promptAlias 时按租户从提示词表实时取该提示词作 system 消息（改完立即生效），不传时用模型配置的默认提示词（若配置了）；模型配置按租户 + 别名动态加载，Key 加密存储且不写进配置文件。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：AI_VALIDATION_001（400，问题为空或超过 2000 字符）、AI_VALIDATION_002（400，提示词别名不存在或未启用）、AI_UNEXPECTED_001（500，模型调用失败，详情看服务端日志）、SECURITY_DENIED_001（401，未携带令牌）。",
+  "ai.chat.description": "把问题发给数据库里配置的大模型，返回回答与 token 计量。别名不传时用 default 配置；提示词与模型解耦——请求传 promptAlias 时按租户从提示词表实时取该提示词作 system 消息（改完立即生效），不传时用模型配置的默认提示词（若配置了）；模型配置按租户 + 别名动态加载，Key 加密存储且不写进配置文件。单次调用有服务端超时（默认 60 秒），超时或上游故障返回可重试的 503。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：AI_VALIDATION_001（400，问题为空或超过 2000 字符）、AI_VALIDATION_002（400，提示词别名不存在或未启用）、AI_NOTFOUND_001（404，模型配置不存在或未启用）、AI_TIMEOUT_001（504，模型响应超时；上游可能已产生副作用，重试前请确认）、AI_UNAVAILABLE_001（503，模型服务不可达或返回错误）、AI_UNAVAILABLE_002（503，模型配置不可用或上游鉴权失败）、AI_UNAVAILABLE_003（503，触发每用户配额限流，details 带 scope 与 retryAfter）、SECURITY_DENIED_001（401，未携带令牌）。",
+
+  "ai.models.title": "查询可用模型清单",
+  "ai.models.description": "分页列出当前租户已启用的模型别名，供前端渲染模型选择器（调 ai:chat 时作为 alias 参数）。只返回别名、供应商、模型名与是否配置了默认提示词；**不返回 Endpoint 与 API Key**（最小披露，配置管理请用 llm:configs）。停用的配置不会列出。查询参数：page（页码，默认 1）、pageSize（每页条数，不传用 Paging:DefaultPageSize，上限 Paging:MaxPageSize）、query（可选，按别名或模型名包含匹配）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：PAGING_VALIDATION_001（400，分页参数超出范围）、SECURITY_DENIED_001（401，未携带令牌）。",
+
+  "ai.usage.title": "查询我的模型用量",
+  "ai.usage.description": "统计当前登录主体在最近 N 天内的模型调用用量：调用次数、成功/失败次数、输入与输出 token 合计，并按自然日（UTC）返回每日明细。数据取自模型调用日志，只统计调用者本人的记录（按租户 + 主体过滤），不含其他用户。用途：前端展示「已用多少 token」、用户自查是否触顶配额、核对账单与实际消耗。查询参数：days（统计天数，含今天，1-90，默认 7）。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：AI_VALIDATION_003（400，统计天数超出 1-90）、SECURITY_DENIED_001（401，未携带令牌）。",
 
   "prompt.configs.title": "查询提示词列表",
   "prompt.configs.description": "分页列出当前租户的提示词（按别名排序）。查询参数：page（页码，默认 1）、pageSize（每页条数，不传用服务端配置 Paging:DefaultPageSize，上限 Paging:MaxPageSize）、query（可选，按别名包含匹配筛选关键字）。响应含 total 总条数。提示词独立于模型配置，对话接口用 promptAlias 引用。\n\n【错误返回】所有失败均为 RFC 9457 ProblemDetails，字段含义：code=错误码（客户端只依赖它判断错误类型）、status=HTTP 状态码、title=错误种类、detail=按语言翻译的文案、errors=字段级校验错误（仅 400 校验类）、details=附加标量、traceId=排障跟踪 ID、instance=请求路径。\n\n本操作可能返回：PAGING_VALIDATION_001（400，分页参数超出范围）、LLM_DENIED_001（401，未携带令牌）、LLM_DENIED_002（403，需要 llm.admin 权限）。",
@@ -98,6 +104,20 @@
   "prompt.not_found": "提示词不存在",
   "paging.out_of_range": "分页参数超出范围",
   "ai.prompt_not_found": "提示词别名不存在或未启用",
+  "ai.question_empty": "问题不能为空或超过 2000 字符",
+  "ai.usage_days_invalid": "统计天数须为 1-90",
+  "ai.rate_limited": "调用过于频繁，请稍后重试",
+  "ai.config_not_found": "模型配置不存在或未启用：{alias}，请先通过 llm:upsertconfig 录入",
+  "ai.provider.not_found": "模型配置不存在或未启用",
+  "ai.provider.default_missing": "没有指定模型且未配置默认模型",
+  "ai.provider.kind_not_found": "没有登记该供应商种类的客户端工厂",
+  "ai.provider.embedding_default_missing": "未配置嵌入模型（知识库功能未接入）",
+  "ai.provider.create_failed": "模型客户端创建失败",
+  "ai.chat.empty_response": "模型返回了空响应",
+  "ai.config_broken": "模型配置不可用，请检查模型配置或查看服务端日志",
+  "ai.model_timeout": "模型响应超时，请稍后重试",
+  "ai.model_auth_failed": "模型鉴权失败，请检查 API Key",
+  "ai.model_error": "模型服务暂时不可用",
 
   "openapi.schemas.problem_details.description": "操作失败时返回 RFC 9457 ProblemDetails。客户端只依赖 code 判断错误类型，不要解析 detail 文字。",
   "openapi.schemas.problem_details.properties.code": "错误码，格式 <域名>_<种类>_<编号>，如 AUTH_CONFLICT_001。客户端以此判断错误类型",
