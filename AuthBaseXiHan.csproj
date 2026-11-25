@@ -18,10 +18,15 @@
       <PrivateAssets>all</PrivateAssets>
       <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
     </PackageReference>
-    <PackageReference Include="Microsoft.Extensions.AI" Version="11.0.1" />
-    <PackageReference Include="Microsoft.Extensions.AI.OpenAI" Version="11.0.1" />
     <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.23.0" />
     <PackageReference Include="System.Security.Cryptography.Pkcs" Version="11.0.0" />
+    <!--
+      AI 栈统一由 XiHan.Framework.AI 提供，不直接引用 Microsoft.Extensions.AI：
+      ① 框架的 AI.Abstractions/OpenAI 依赖 Microsoft.Extensions.AI.Abstractions 10.11.0，
+         直接钉 11.0.1 会让框架跑在比它测试时高一整个大版本的类型上（NuGet 取高版本）；
+      ② 本项目只在 API 边界用 ChatMessage/ChatRole/IChatClient 这些抽象类型，
+         它们随框架的 AI.Abstractions 传递进来即可，不必自持版本。
+    -->
     <PackageReference Include="XiHan.Framework.AI.Abstractions" Version="5.0.0-rc.7" />
     <PackageReference Include="XiHan.Framework.AI.OpenAI" Version="5.0.0-rc.7" />
     <PackageReference Include="XiHan.Framework.Caching.Redis" Version="5.0.0-rc.7" />
