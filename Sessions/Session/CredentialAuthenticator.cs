@@ -11,7 +11,7 @@ namespace AuthBaseXiHan.Sessions.Session;
 /// <remarks>
 /// 两套登录的差异只有三处，全部由调用方注入 / 自行映射，流程本体只写一遍：
 /// - 账号来源：lookup 委托查各自表（Users / AdminUsers），返回带密码哈希与角色的账号档案；
-/// - 错误码：登录失败只返回 <see cref="CredentialLoginFailure"/> 种类，AUTH_* / ADMIN_* 由各自操作映射；
+/// - 错误码：登录失败只返回 <see cref="FailureKind"/> 种类，AUTH_* / ADMIN_* 由各自操作映射；
 /// - 会话轨道：scope 决定 Redis 用户索引键命名空间与 token_kind claim。
 /// 防账号枚举三件套在这里统一做：验证码读后即删、账号不存在与密码错误同码种类
 /// （CredentialsInvalid）、无论账号是否存在都恰好执行一次 BCrypt.Verify（假哈希垫耗时）。
@@ -70,6 +70,7 @@ public sealed class CredentialAuthenticator(CaptchaStore captchas, JwtTokenIssue
     /// <param name="password">明文密码</param>
     /// <param name="scope">会话轨道（决定索引键命名空间与 token_kind claim）</param>
     /// <param name="lookup">账号查找委托</param>
+    /// <param name="cancellationToken">取消令牌（调用方断开或调用截止时间到达时中止流程）</param>
     public async ValueTask<LoginResult> LoginAsync(
         string captchaId, string captchaCode, string userName, string password,
         SessionScope scope, LookupAsync lookup, CancellationToken cancellationToken)
